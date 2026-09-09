@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ghar-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: ghar
+          POSTGRES_PASSWORD: ghar
+          POSTGRES_DB: ghar
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ghar -d ghar"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build dev image
+        run: docker build --target dev -t ghar-dev .
+
+      - name: Migrate
+        run: |
+          docker run --rm --network host \
+            -e DATABASE_URL=postgres://ghar:ghar@localhost:5432/ghar \
+            -v "$PWD:/app" -v /app/node_modules \
+            ghar-dev npm run db:migrate
+
+      - name: Test
+        run: |
+          docker run --rm --network host \
+            -e DATABASE_URL=postgres://ghar:ghar@localhost:5432/ghar \
+            -e MATTER_STORAGE_PATH=/tmp/ghar-matter \
+            -v "$PWD:/app" -v /app/node_modules \
+            ghar-dev npm test
+
+      - name: Build production image
+        run: docker build --target production -t ghar-prod .
+
+  publish:
+    needs: ci
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: production
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/ghar:latest
+            ghcr.io/${{ github.repository_owner }}/ghar:${{ github.sha }}

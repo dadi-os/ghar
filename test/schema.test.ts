@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { eq } from "drizzle-orm";
-import { loadConfig } from "../src/config.js";
+import { loadDatabaseConfig } from "../src/config.js";
 import { createDb, type Db, type Sql } from "../src/db/client.js";
 import { migrate } from "../src/db/migrate.js";
 import {
@@ -13,7 +13,7 @@ import {
   tags,
 } from "../src/db/schema.js";
 
-const config = loadConfig();
+const config = loadDatabaseConfig();
 const { client: sql, db } = createDb(config.env.databaseUrl);
 
 /** Drizzle wraps driver errors; match against the outer message and its cause. */
