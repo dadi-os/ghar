@@ -80,7 +80,7 @@ export function endpointDisplayName(input: {
   return base;
 }
 
-/** First user-label value that names the endpoint, ignoring room and zone tags. */
+/** First user-label value that names the endpoint, ignoring place and meta tags. */
 function userLabelName(
   list: ReadonlyArray<{ label: string; value: string }> | undefined,
   productName: string | null,
@@ -89,7 +89,47 @@ function userLabelName(
     return null;
   }
   const named = list.find((entry) => /^(name|label|device)$/i.test(entry.label.trim()));
-  return distinctDeviceLabel(named?.value, productName);
+  const fromKey = distinctDeviceLabel(named?.value, productName);
+  if (fromKey) {
+    return fromKey;
+  }
+  for (const entry of list) {
+    if (
+      /^(room|zone|area|floor|location|orientation|serial|mac|uuid|id|firmware|version|model|sku|part|pn)$/i.test(
+        entry.label.trim(),
+      )
+    ) {
+      continue;
+    }
+    const value = distinctDeviceLabel(entry.value, productName);
+    if (value) {
+      return value;
+    }
+  }
+  return null;
+}
+
+/**
+ * True when `name` is still the registry's generated label, not a rename.
+ * Stock names are replaced on later syncs when Matter has a real node label.
+ */
+export function isStockDeviceName(name: string, productName: string | null): boolean {
+  const trimmed = name.trim();
+  if (!trimmed || trimmed === "Device") {
+    return true;
+  }
+  if (/^device-\d+-\d+$/i.test(trimmed)) {
+    return true;
+  }
+  const product = productName?.trim() ?? "";
+  if (!product) {
+    return false;
+  }
+  if (trimmed.localeCompare(product, undefined, { sensitivity: "accent" }) === 0) {
+    return true;
+  }
+  const escaped = product.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped} \\(\\d+\\)$`, "i").test(trimmed);
 }
 
 /**
@@ -98,7 +138,8 @@ function userLabelName(
  *
  * `placeRoomId`, when set, is the room for new rows and for endpoints already
  * in the registry. Reconnect sync omits it so an existing room stays put.
- * An existing row keeps its name; only an insert takes the Matter label.
+ * An existing row keeps a rename. A stock product label is replaced when
+ * Matter now has a node or user label.
  */
 export async function syncNodeToRegistry(
   db: Db,
@@ -114,7 +155,10 @@ export async function syncNodeToRegistry(
   const basic = node.maybeStateOf(BasicInformationClient);
   const vendorName = basic?.vendorName ?? null;
   const productName = basic?.productName ?? null;
-  const nodeLabel = distinctDeviceLabel(basic?.nodeLabel, productName);
+  const nodeUser = node.maybeStateOf(UserLabelClient);
+  const nodeLabel =
+    distinctDeviceLabel(basic?.nodeLabel, productName) ??
+    userLabelName(nodeUser?.labelList, productName);
   const roomId = placeRoomId ?? (await unassignedRoomId(db));
   const registered: RegisteredDevice[] = [];
 
@@ -179,6 +223,7 @@ export async function syncNodeToRegistry(
     let deviceId: string;
     if (existing[0]) {
       deviceId = existing[0].id;
+      const stock = isStockDeviceName(existing[0].name, existing[0].productName ?? productName);
       await db
         .update(devices)
         .set({
@@ -186,6 +231,7 @@ export async function syncNodeToRegistry(
           productName,
           online: true,
           lastSeenAt: new Date(),
+          ...(stock ? { name } : {}),
           ...(placeRoomId !== undefined ? { roomId: placeRoomId } : {}),
         })
         .where(eq(devices.id, deviceId));
