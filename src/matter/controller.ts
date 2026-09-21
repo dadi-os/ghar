@@ -12,13 +12,14 @@ import {
   ServerNode,
   type ClientNode,
 } from "@matter/main";
+import { Ble } from "@matter/protocol";
 import { eq } from "drizzle-orm";
 import { ADMIN_FABRIC_LABEL, CONTROLLER_NODE_ID, PENDING_CAUSE_TTL_MS } from "../constants.js";
 import type { Db } from "../db/client.js";
 import { devices } from "../db/schema.js";
 import { GharError } from "../errors.js";
 import type { Logger } from "../logging.js";
-import type { MatterController } from "./controller-api.js";
+import type { MatterController, CommissionRequest } from "./controller-api.js";
 import { PendingCauseTracker } from "./cause.js";
 import { CommissioningService, type CommissionJob } from "./commissioning.js";
 import {
@@ -30,6 +31,8 @@ import {
 } from "./commands.js";
 import type { RegisteredDevice } from "./registry.js";
 import { syncNodeToRegistry } from "./registry.js";
+import { RadioHub, type RadioCommand, type RadioEvent } from "./radio.js";
+import { RadioBle } from "./radio-ble.js";
 import { StateCache } from "./state-cache.js";
 import { bindEndpointSubscriptions } from "./subscriptions.js";
 import { DeviceTimeoutError } from "./timeout.js";
@@ -60,6 +63,7 @@ export class FabricController implements MatterController {
   #server: ServerNode | undefined;
   #commissioning: CommissioningService | undefined;
   #environment: Environment | undefined;
+  readonly #radio = new RadioHub();
 
   constructor(opts: FabricControllerOptions) {
     this.#db = opts.db;
@@ -89,6 +93,7 @@ export class FabricController implements MatterController {
     environment.vars.set("storage.path", this.#matterStoragePath);
     MatterLogger.level = LogLevel.DEBUG;
     this.#environment = environment;
+    environment.set(Ble, new RadioBle(this.#radio));
 
     this.#log.info("matter storage ready", { path: this.#matterStoragePath });
 
@@ -100,11 +105,12 @@ export class FabricController implements MatterController {
         tcp: true,
       },
       basicInformation: {
+        vendorName: ADMIN_FABRIC_LABEL,
         productName: ADMIN_FABRIC_LABEL,
       },
       controller: {
         adminFabricLabel: ADMIN_FABRIC_LABEL,
-        ble: false,
+        ble: true,
       },
       commissioning: {
         enabled: false,
@@ -181,12 +187,42 @@ export class FabricController implements MatterController {
     }
   }
 
-  startCommission(pairingCode: string): CommissionJob {
-    return this.commissioning.start(pairingCode);
+  startCommission(request: CommissionRequest): CommissionJob {
+    return this.commissioning.start(request);
   }
 
   getCommissionJob(id: string): CommissionJob | undefined {
     return this.commissioning.get(id);
+  }
+
+  radioAttached(): boolean {
+    return this.#radio.attached;
+  }
+
+  attachRadio(): { session_id: string } {
+    return this.#radio.attach();
+  }
+
+  detachRadio(sessionId: string): void {
+    this.#radio.detach(sessionId);
+  }
+
+  pollRadio(sessionId: string, waitMs: number): Promise<RadioCommand | null> {
+    return this.#radio.poll(sessionId, waitMs);
+  }
+
+  replyRadio(
+    sessionId: string,
+    id: number,
+    ok: boolean,
+    result: unknown,
+    error?: string,
+  ): void {
+    this.#radio.reply(sessionId, id, ok, result, error);
+  }
+
+  emitRadio(sessionId: string, event: RadioEvent): void {
+    this.#radio.emit(sessionId, event);
   }
 
   async removeDevice(deviceId: string): Promise<void> {

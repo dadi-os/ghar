@@ -13,7 +13,7 @@ export const DEVICE_OPERATION_TIMEOUT_MS = 5_000;
 export const PENDING_CAUSE_TTL_MS = 5_000;
 
 /** Admin fabric label written onto commissioned peers. */
-export const ADMIN_FABRIC_LABEL = "Ghar";
+export const ADMIN_FABRIC_LABEL = "Northwind";
 
 /** Controller node id within the Matter storage namespace. */
 export const CONTROLLER_NODE_ID = "ghar";

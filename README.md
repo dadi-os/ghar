@@ -53,7 +53,7 @@ Source is bind-mounted; edits restart in place. Matter discovery does not work o
 
 Logs follow the nas JSON contract (`service=ghar`, request summary with `request_id` / `duration_ms`, errors with `code`). Default Fastify access logging is off. Process-level Matter/boot lines use the same JSON shape via `createLogger()`.
 
-HTTP errors: `{ "error": { "type": "<code>", "message": "..." } }`. Shared codes include `invalid_request`, `not_found`, `conflict`, `internal_error`. Domain codes include `commissioning_failed`, `device_unreachable`. See nas README for the shared catalog.
+HTTP errors: `{ "error": { "type": "<code>", "message": "..." } }`. Shared codes include `invalid_request`, `not_found`, `conflict`, `internal_error`. Domain codes include `commissioning_failed`, `device_unreachable`, `radio_unavailable`. See nas README for the shared catalog.
 
 ## Matter / fabric
 
@@ -76,7 +76,12 @@ The HTTP server listens before the Matter controller finishes starting. Until th
 | `GET` | `/tags` | distinct tag names |
 | `GET` | `/state` | live attribute cache snapshot |
 | `GET` | `/events` | `event_logs` query (`since`, `until`, filters, page) |
-| `POST` | `/commission` | `202` + `job_id` for pairing code |
+| `POST` | `/commission` | `202` + `job_id`. Optional `room_id`. `radio` is `network` (default) or `nearby`. Nearby requires `wifi` and an attached Hath radio, otherwise `422 radio_unavailable`. Wi-Fi credentials are not stored. |
 | `GET` | `/commission/:jobId` | poll job (failed jobs still `200` with reason in payload) |
+| `POST` | `/radio/attach` | `201` + `session_id`. One Hath Bluetooth radio at a time (`409` if taken) |
+| `POST` | `/radio/detach` | release the radio session |
+| `GET` | `/radio/commands` | long-poll the next GATT or scan command (`wait_ms`, max 25000) |
+| `POST` | `/radio/reply` | complete a command |
+| `POST` | `/radio/event` | advertisement, notification, or disconnect |
 
 Unknown request fields are a 422.

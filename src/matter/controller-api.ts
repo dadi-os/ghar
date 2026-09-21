@@ -5,7 +5,25 @@
 
 import type { CommissionJob } from "./commissioning.js";
 import type { ColorCommand, CommandIssuer } from "./commands.js";
+import type { RadioCommand, RadioEvent } from "./radio.js";
 import type { StateCache } from "./state-cache.js";
+
+/** Where discovery runs. `nearby` uses the attached Hath Bluetooth radio. */
+export type CommissionRadio = "network" | "nearby";
+
+/** Wi-Fi credentials sent to the device during nearby commissioning. Not stored. */
+export type CommissionWifi = {
+  ssid: string;
+  password: string;
+};
+
+/** One commissioning attempt. `wifi` is held only for the in-flight job. */
+export type CommissionRequest = {
+  code: string;
+  roomId?: string;
+  radio: CommissionRadio;
+  wifi?: CommissionWifi;
+};
 
 export type MatterController = {
   readonly cache: StateCache;
@@ -20,6 +38,18 @@ export type MatterController = {
    * and delete its registry row.
    */
   removeDevice(deviceId: string): Promise<void>;
-  startCommission(pairingCode: string): CommissionJob;
+  startCommission(request: CommissionRequest): CommissionJob;
   getCommissionJob(id: string): CommissionJob | undefined;
+  /** True while a Hath client holds the Bluetooth radio session. */
+  radioAttached(): boolean;
+  /** Open the only radio session. */
+  attachRadio(): { session_id: string };
+  /** Drop the radio session. */
+  detachRadio(sessionId: string): void;
+  /** Next GATT or scan command, or null when `waitMs` elapses. */
+  pollRadio(sessionId: string, waitMs: number): Promise<RadioCommand | null>;
+  /** Complete a command the radio finished. */
+  replyRadio(sessionId: string, id: number, ok: boolean, result: unknown, error?: string): void;
+  /** Forward an advertisement, notification, or disconnect. */
+  emitRadio(sessionId: string, event: RadioEvent): void;
 };

@@ -322,6 +322,128 @@ test("commissioning job lifecycle: succeed, fail-late, and conflict", async () =
   assert.equal(conflict.json().error.type, "conflict");
 });
 
+test("commissioning places a new device in the requested room", async () => {
+  await reset();
+  const kitchen = await app.inject({
+    method: "POST",
+    url: "/rooms",
+    payload: { name: "kitchen" },
+  });
+  assert.equal(kitchen.statusCode, 201);
+  const roomId = kitchen.json().id as string;
+
+  fake.commissionMode = "succeed";
+  const started = await app.inject({
+    method: "POST",
+    url: "/commission",
+    payload: { code: "34970112332", room_id: roomId },
+  });
+  assert.equal(started.statusCode, 202);
+  const jobId = started.json().job_id as string;
+
+  let status = "pending";
+  for (let i = 0; i < 50 && status !== "succeeded" && status !== "failed"; i++) {
+    await new Promise((r) => setTimeout(r, 20));
+    const poll = await app.inject({ method: "GET", url: `/commission/${jobId}` });
+    status = poll.json().status;
+  }
+  assert.equal(status, "succeeded");
+
+  const list = await app.inject({ method: "GET", url: "/devices" });
+  const placed = (list.json().devices as Array<{ room: { id: string } }>).find(
+    (device) => device.room.id === roomId,
+  );
+  assert.ok(placed);
+
+  const missing = await app.inject({
+    method: "POST",
+    url: "/commission",
+    payload: { code: "34970112332", room_id: "00000000-0000-4000-8000-000000000001" },
+  });
+  assert.equal(missing.statusCode, 404);
+  assert.equal(missing.json().error.type, "not_found");
+});
+
+test("nearby commissioning requires wifi and an attached radio", async () => {
+  await reset();
+  const missingWifi = await app.inject({
+    method: "POST",
+    url: "/commission",
+    payload: { code: "34970112332", radio: "nearby" },
+  });
+  assert.equal(missingWifi.statusCode, 422);
+  assert.equal(missingWifi.json().error.type, "invalid_request");
+
+  const missingRadio = await app.inject({
+    method: "POST",
+    url: "/commission",
+    payload: {
+      code: "34970112332",
+      radio: "nearby",
+      wifi: { ssid: "house", password: "secret" },
+    },
+  });
+  assert.equal(missingRadio.statusCode, 422);
+  assert.equal(missingRadio.json().error.type, "radio_unavailable");
+
+  const attached = await app.inject({ method: "POST", url: "/radio/attach" });
+  assert.equal(attached.statusCode, 201);
+  const sessionId = attached.json().session_id as string;
+  const again = await app.inject({ method: "POST", url: "/radio/attach" });
+  assert.equal(again.statusCode, 409);
+
+  const idle = await app.inject({
+    method: "GET",
+    url: `/radio/commands?session_id=${sessionId}&wait_ms=0`,
+  });
+  assert.equal(idle.statusCode, 200);
+  assert.equal(idle.json().command, null);
+
+  fake.commissionMode = "succeed";
+  const started = await app.inject({
+    method: "POST",
+    url: "/commission",
+    payload: {
+      code: "34970112332",
+      radio: "nearby",
+      wifi: { ssid: "house", password: "secret" },
+    },
+  });
+  assert.equal(started.statusCode, 202);
+  const jobId = started.json().job_id as string;
+  let body = "";
+  for (let i = 0; i < 50; i++) {
+    await new Promise((r) => setTimeout(r, 20));
+    const poll = await app.inject({ method: "GET", url: `/commission/${jobId}` });
+    body = poll.body;
+    if (poll.json().status === "succeeded" || poll.json().status === "failed") {
+      break;
+    }
+  }
+  assert.equal(JSON.parse(body).status, "succeeded");
+  assert.equal(body.includes("secret"), false);
+
+  const detached = await app.inject({
+    method: "POST",
+    url: "/radio/detach",
+    payload: { session_id: sessionId },
+  });
+  assert.equal(detached.statusCode, 200);
+  const stale = await app.inject({
+    method: "GET",
+    url: `/radio/commands?session_id=${sessionId}&wait_ms=0`,
+  });
+  assert.equal(stale.statusCode, 409);
+
+  const bare = await app.inject({
+    method: "POST",
+    url: "/radio/reply",
+    payload: { session_id: sessionId, id: 1, ok: false },
+  });
+  assert.equal(bare.statusCode, 422);
+  assert.equal(bare.json().error.type, "invalid_request");
+});
+
 test("GET /state returns cached values with changed_at", async () => {
   await reset();
   const roomId = await unassignedRoomId(handle.db);

@@ -3,8 +3,10 @@
 import { and, eq } from "drizzle-orm";
 import type { ClientNode } from "@matter/main";
 import { BasicInformationClient } from "@matter/main/behaviors/basic-information";
+import { BridgedDeviceBasicInformationClient } from "@matter/main/behaviors/bridged-device-basic-information";
 import { ColorControlClient } from "@matter/main/behaviors/color-control";
 import { DescriptorClient } from "@matter/main/behaviors/descriptor";
+import { UserLabelClient } from "@matter/main/behaviors/user-label";
 import type { Db } from "../db/client.js";
 import { deviceCapabilities, devices, rooms } from "../db/schema.js";
 import { deriveCapabilities, type CapabilityRecord } from "./capabilities.js";
@@ -40,13 +42,69 @@ function colorFeaturesFromEndpoint(endpoint: {
 }
 
 /**
+ * A label the device chose for itself, when it is not just the model string.
+ * Empty and product-identical labels are discarded.
+ */
+export function distinctDeviceLabel(
+  raw: string | null | undefined,
+  productName: string | null,
+): string | null {
+  const trimmed = raw?.trim() ?? "";
+  if (!trimmed) {
+    return null;
+  }
+  const product = productName?.trim() ?? "";
+  if (product && trimmed.localeCompare(product, undefined, { sensitivity: "accent" }) === 0) {
+    return null;
+  }
+  return trimmed;
+}
+
+/**
+ * Name for a new endpoint.
+ * Prefers the endpoint or node label. The endpoint number is appended only
+ * when several endpoints on the node would otherwise share that name.
+ */
+export function endpointDisplayName(input: {
+  endpointLabel: string | null;
+  nodeLabel: string | null;
+  productName: string | null;
+  endpoint: number;
+  peersSharingLabel: number;
+}): string {
+  const base =
+    input.endpointLabel ?? input.nodeLabel ?? (input.productName?.trim() || "Device");
+  if (input.peersSharingLabel > 1) {
+    return `${base} (${input.endpoint})`;
+  }
+  return base;
+}
+
+/** First user-label value that names the endpoint, ignoring room and zone tags. */
+function userLabelName(
+  list: ReadonlyArray<{ label: string; value: string }> | undefined,
+  productName: string | null,
+): string | null {
+  if (!list) {
+    return null;
+  }
+  const named = list.find((entry) => /^(name|label|device)$/i.test(entry.label.trim()));
+  return distinctDeviceLabel(named?.value, productName);
+}
+
+/**
  * Upsert one Postgres row per controllable endpoint on a commissioned peer.
  * Endpoints with no Ghar capabilities are skipped.
+ *
+ * `placeRoomId`, when set, is the room for new rows and for endpoints already
+ * in the registry. Reconnect sync omits it so an existing room stays put.
+ * An existing row keeps its name; only an insert takes the Matter label.
  */
 export async function syncNodeToRegistry(
   db: Db,
   node: ClientNode,
   log: Logger,
+  placeRoomId?: string,
 ): Promise<RegisteredDevice[]> {
   const peerAddress = node.peerAddress;
   if (!peerAddress) {
@@ -56,8 +114,16 @@ export async function syncNodeToRegistry(
   const basic = node.maybeStateOf(BasicInformationClient);
   const vendorName = basic?.vendorName ?? null;
   const productName = basic?.productName ?? null;
-  const roomId = await unassignedRoomId(db);
+  const nodeLabel = distinctDeviceLabel(basic?.nodeLabel, productName);
+  const roomId = placeRoomId ?? (await unassignedRoomId(db));
   const registered: RegisteredDevice[] = [];
+
+  type PendingEndpoint = {
+    endpointNumber: number;
+    capabilities: CapabilityRecord[];
+    endpointLabel: string | null;
+  };
+  const pending: PendingEndpoint[] = [];
 
   for (const endpoint of node.parts) {
     const endpointNumber = endpoint.number;
@@ -76,10 +142,34 @@ export async function syncNodeToRegistry(
       continue;
     }
 
-    const name =
-      productName && productName.length > 0
-        ? `${productName} (${endpointNumber})`
-        : `device-${nodeId}-${endpointNumber}`;
+    const bridged = endpoint.maybeStateOf(BridgedDeviceBasicInformationClient);
+    const userLabels = endpoint.maybeStateOf(UserLabelClient);
+    const endpointLabel =
+      distinctDeviceLabel(bridged?.nodeLabel, productName) ??
+      userLabelName(userLabels?.labelList, productName);
+    pending.push({ endpointNumber, capabilities, endpointLabel });
+  }
+
+  const sharing = new Map<string, number>();
+  for (const item of pending) {
+    const base = item.endpointLabel ?? nodeLabel ?? (productName?.trim() || "Device");
+    sharing.set(base, (sharing.get(base) ?? 0) + 1);
+  }
+
+  for (const item of pending) {
+    const { endpointNumber, capabilities } = item;
+    const base = item.endpointLabel ?? nodeLabel ?? (productName?.trim() || "Device");
+    const peers = sharing.get(base);
+    if (peers === undefined) {
+      throw new Error(`endpoint label was not counted: ${base}`);
+    }
+    const name = endpointDisplayName({
+      endpointLabel: item.endpointLabel,
+      nodeLabel,
+      productName,
+      endpoint: endpointNumber,
+      peersSharingLabel: peers,
+    });
 
     const existing = await db
       .select()
@@ -92,11 +182,11 @@ export async function syncNodeToRegistry(
       await db
         .update(devices)
         .set({
-          name,
           vendorName,
           productName,
           online: true,
           lastSeenAt: new Date(),
+          ...(placeRoomId !== undefined ? { roomId: placeRoomId } : {}),
         })
         .where(eq(devices.id, deviceId));
       await db.delete(deviceCapabilities).where(eq(deviceCapabilities.deviceId, deviceId));

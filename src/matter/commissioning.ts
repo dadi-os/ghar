@@ -4,9 +4,11 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { Seconds } from "@matter/general";
 import type { ClientNode, ServerNode } from "@matter/main";
 import { GeneralCommissioning } from "@matter/main/clusters";
 import type { Logger } from "../logging.js";
+import type { CommissionRequest, CommissionWifi } from "./controller-api.js";
 import { decodePairingCode } from "./pairing.js";
 import type { RegisteredDevice } from "./registry.js";
 import { syncNodeToRegistry } from "./registry.js";
@@ -29,6 +31,9 @@ export type CommissionJob = {
   error?: string;
   nodeId?: string;
   deviceIds?: string[];
+  /** Room chosen at commission time. Omitted leaves new devices unassigned. */
+  roomId?: string;
+  radio: CommissionRequest["radio"];
   startedAt: Date;
   finishedAt?: Date;
 };
@@ -60,28 +65,33 @@ export class CommissioningService {
   }
 
   /**
-   * Start on-network commissioning from a manual or QR pairing code.
+   * Start commissioning from a manual or QR pairing code.
    * Returns immediately with a pending job; progress is visible via {@link get}.
+   * `wifi` is used for the nearby path and is not retained on the job.
    */
-  start(pairingCode: string): CommissionJob {
+  start(request: CommissionRequest): CommissionJob {
     const job: CommissionJob = {
       id: randomUUID(),
       status: "pending",
-      pairingCode,
+      pairingCode: request.code,
+      radio: request.radio,
       startedAt: new Date(),
+      ...(request.roomId !== undefined ? { roomId: request.roomId } : {}),
     };
     this.#jobs.set(job.id, job);
-    void this.#run(job);
+    void this.#run(job, request.wifi);
     return job;
   }
 
-  async #run(job: CommissionJob): Promise<void> {
+  async #run(job: CommissionJob, wifi: CommissionWifi | undefined): Promise<void> {
     const { controller, db, cache, causes, log, onNodeReady } = this.#runtime;
     try {
       job.status = "discovering";
       const decoded = decodePairingCode(job.pairingCode);
       log.info("commissioning discovery started", {
         job_id: job.id,
+        radio: job.radio,
+        room_id: job.roomId,
         short_discriminator: decoded.shortDiscriminator,
         long_discriminator: decoded.longDiscriminator,
       });
@@ -93,6 +103,7 @@ export class CommissioningService {
             ? { shortDiscriminator: decoded.shortDiscriminator }
             : {};
 
+      const nearby = job.radio === "nearby";
       job.status = "commissioning";
       const node = await controller.peers.commission({
         passcode: decoded.passcode,
@@ -101,7 +112,11 @@ export class CommissioningService {
         ...(decoded.productId !== undefined ? { productId: decoded.productId } : {}),
         regulatoryLocation: GeneralCommissioning.RegulatoryLocationType.Indoor,
         regulatoryCountryCode: "US",
-        discoveryCapabilities: { ble: false, onIpNetwork: true },
+        discoveryCapabilities: { ble: nearby, onIpNetwork: !nearby },
+        ...(wifi
+          ? { wifiNetwork: { wifiSsid: wifi.ssid, wifiCredentials: wifi.password } }
+          : {}),
+        ...(nearby ? { timeout: Seconds(90) } : {}),
         autoSubscribe: true,
       });
 
@@ -119,7 +134,7 @@ export class CommissioningService {
         await node.lifecycle.ready;
       }
 
-      const devices = await syncNodeToRegistry(db, node, log);
+      const devices = await syncNodeToRegistry(db, node, log, job.roomId);
       const dispose = await bindEndpointSubscriptions({ db, cache, causes, log }, node, devices);
       onNodeReady(node, devices, dispose);
 

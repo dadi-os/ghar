@@ -6,12 +6,13 @@ import { PENDING_CAUSE_TTL_MS } from "../src/constants.js";
 import type { Db } from "../src/db/client.js";
 import { deviceCapabilities, devices, rooms } from "../src/db/schema.js";
 import { GharError } from "../src/errors.js";
-import type { MatterController } from "../src/matter/controller-api.js";
+import type { MatterController, CommissionRequest } from "../src/matter/controller-api.js";
 import { PendingCauseTracker } from "../src/matter/cause.js";
 import type { CommissionJob } from "../src/matter/commissioning.js";
 import type { ColorCommand, CommandIssuer } from "../src/matter/commands.js";
 import { applyObservation } from "../src/matter/events.js";
 import { StateCache } from "../src/matter/state-cache.js";
+import { RadioHub, type RadioCommand, type RadioEvent } from "../src/matter/radio.js";
 import { DeviceTimeoutError } from "../src/matter/timeout.js";
 import { createLogger } from "../src/logging.js";
 
@@ -27,6 +28,7 @@ export class FakeController implements MatterController {
   readonly #jobs = new Map<string, CommissionJob>();
   readonly #db: Db;
   readonly #log = createLogger();
+  readonly #radio = new RadioHub();
 
   constructor(db: Db) {
     this.#db = db;
@@ -69,15 +71,17 @@ export class FakeController implements MatterController {
     this.cache.deleteDevice(deviceId);
   }
 
-  startCommission(pairingCode: string): CommissionJob {
-    if (pairingCode === "conflict") {
+  startCommission(request: CommissionRequest): CommissionJob {
+    if (request.code === "conflict") {
       throw new GharError(409, "conflict", "node and endpoint pair already exists");
     }
     const job: CommissionJob = {
       id: randomUUID(),
       status: "pending",
-      pairingCode,
+      pairingCode: request.code,
+      radio: request.radio,
       startedAt: new Date(),
+      ...(request.roomId !== undefined ? { roomId: request.roomId } : {}),
     };
     this.#jobs.set(job.id, job);
     void this.#runCommission(job);
@@ -86,6 +90,36 @@ export class FakeController implements MatterController {
 
   getCommissionJob(id: string): CommissionJob | undefined {
     return this.#jobs.get(id);
+  }
+
+  radioAttached(): boolean {
+    return this.#radio.attached;
+  }
+
+  attachRadio(): { session_id: string } {
+    return this.#radio.attach();
+  }
+
+  detachRadio(sessionId: string): void {
+    this.#radio.detach(sessionId);
+  }
+
+  pollRadio(sessionId: string, waitMs: number): Promise<RadioCommand | null> {
+    return this.#radio.poll(sessionId, waitMs);
+  }
+
+  replyRadio(
+    sessionId: string,
+    id: number,
+    ok: boolean,
+    result: unknown,
+    error?: string,
+  ): void {
+    this.#radio.reply(sessionId, id, ok, result, error);
+  }
+
+  emitRadio(sessionId: string, event: RadioEvent): void {
+    this.#radio.emit(sessionId, event);
   }
 
   /** Seed cache without writing events (boot-like). */
@@ -128,11 +162,13 @@ export class FakeController implements MatterController {
       job.finishedAt = new Date();
       return;
     }
-    const roomRows = await this.#db.select().from(rooms).where(eq(rooms.name, "unassigned"));
+    const roomRows = job.roomId
+      ? await this.#db.select().from(rooms).where(eq(rooms.id, job.roomId))
+      : await this.#db.select().from(rooms).where(eq(rooms.name, "unassigned"));
     const room = roomRows[0];
     if (!room) {
       job.status = "failed";
-      job.error = "unassigned room missing";
+      job.error = job.roomId ? "room missing" : "unassigned room missing";
       job.finishedAt = new Date();
       return;
     }

@@ -76,6 +76,65 @@ export const patchRoomBody = z
 export const commissionBody = z
   .object({
     code: z.string().min(1),
+    room_id: z.string().uuid().optional(),
+    radio: z.enum(["network", "nearby"]).optional(),
+    wifi: z
+      .object({
+        ssid: z.string().min(1),
+        password: z.string(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.radio === "nearby" && value.wifi === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["wifi"],
+        message: "nearby commissioning requires wifi",
+      });
+    }
+  });
+
+export const radioPollQuery = z
+  .object({
+    session_id: z.string().uuid(),
+    wait_ms: z.coerce.number().int().min(0).max(25_000).optional(),
+  })
+  .strict();
+
+export const radioSessionBody = z
+  .object({
+    session_id: z.string().uuid(),
+  })
+  .strict();
+
+export const radioReplyBody = z
+  .object({
+    session_id: z.string().uuid(),
+    id: z.number().int().positive(),
+    ok: z.boolean(),
+    result: z.unknown().optional(),
+    error: z.string().min(1).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (!value.ok && value.error === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["error"],
+        message: "a failed radio reply requires error",
+      });
+    }
+  });
+
+export const radioEventBody = z
+  .object({
+    session_id: z.string().uuid(),
+    kind: z.enum(["advertisement", "notification", "disconnected"]),
+    address: z.string().min(1),
+    value_b64: z.string().optional(),
   })
   .strict();
 
