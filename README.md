@@ -69,6 +69,7 @@ The HTTP server listens before the Matter controller finishes starting. Until th
 | `PATCH` | `/devices/:id` | name, room, tags |
 | `DELETE` | `/devices/:id` | remove registry row / peer |
 | `POST` | `/devices/:id/command` | capability + params; optional `cause` / `cause_ref` |
+| `POST` | `/devices/:id/identify` | blink the device for a few seconds |
 | `GET` | `/rooms` | list rooms |
 | `POST` | `/rooms` | create room |
 | `PATCH` | `/rooms/:id` | rename (not `unassigned`) |

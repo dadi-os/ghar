@@ -50,7 +50,7 @@ export async function registerDevices(app: FastifyInstance): Promise<void> {
   app.patch("/devices/:id", async (request) => {
     const { id } = parse(idParam, request.params);
     const body = parse(patchDeviceBody, request.body);
-    await getDevice(app.db, app.controller, id);
+    const current = await getDevice(app.db, app.controller, id);
 
     if (body.room !== undefined) {
       const roomRows = await app.db.select().from(rooms).where(eq(rooms.id, body.room));
@@ -62,6 +62,19 @@ export async function registerDevices(app: FastifyInstance): Promise<void> {
 
     if (body.name !== undefined) {
       await app.db.update(devices).set({ name: body.name }).where(eq(devices.id, id));
+      try {
+        await app.controller.setLabel(id, body.name);
+      } catch (err) {
+        if (err instanceof GharError && err.statusCode === 404) {
+          request.log.warn(
+            { device_id: id, err: err.message },
+            "name saved; device has no live Matter session for nodeLabel",
+          );
+        } else {
+          await app.db.update(devices).set({ name: current.name }).where(eq(devices.id, id));
+          throw err;
+        }
+      }
     }
 
     if (body.tags !== undefined) {
@@ -176,6 +189,23 @@ export async function registerDevices(app: FastifyInstance): Promise<void> {
       throw err;
     }
 
+    return { ok: true };
+  });
+
+  app.post("/devices/:id/identify", async (request) => {
+    const { id } = parse(idParam, request.params);
+    await getDevice(app.db, app.controller, id);
+    try {
+      await app.controller.identify(id);
+    } catch (err) {
+      if (err instanceof GharError) {
+        throw err;
+      }
+      if (err instanceof DeviceTimeoutError) {
+        throw new GharError(504, "device_unreachable", err.message);
+      }
+      throw err;
+    }
     return { ok: true };
   });
 }

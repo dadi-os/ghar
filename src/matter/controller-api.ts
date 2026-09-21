@@ -33,6 +33,10 @@ export type MatterController = {
   setOn(deviceId: string, on: boolean, issuer: CommandIssuer): Promise<void>;
   setBrightness(deviceId: string, percent: number, issuer: CommandIssuer): Promise<void>;
   setColor(deviceId: string, color: ColorCommand, issuer: CommandIssuer): Promise<void>;
+  /** Blink the device through the Identify cluster. */
+  identify(deviceId: string): Promise<void>;
+  /** Write the Matter node label. The registry name is updated by the route. */
+  setLabel(deviceId: string, name: string): Promise<void>;
   /**
    * Remove a device from the fabric (when it is the last endpoint on its node)
    * and delete its registry row.

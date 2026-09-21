@@ -1,13 +1,20 @@
 /** Device command helpers with timeouts and cause-pending notes. */
 
 import type { ClientNode, Endpoint } from "@matter/main";
+import { BasicInformationClient } from "@matter/main/behaviors/basic-information";
+import { BridgedDeviceBasicInformationClient } from "@matter/main/behaviors/bridged-device-basic-information";
 import { ColorControlClient } from "@matter/main/behaviors/color-control";
+import { IdentifyClient } from "@matter/main/behaviors/identify";
 import { LevelControlClient } from "@matter/main/behaviors/level-control";
 import { OnOffClient } from "@matter/main/behaviors/on-off";
 import { DEVICE_OPERATION_TIMEOUT_MS } from "../constants.js";
+import { GharError } from "../errors.js";
 import { brightnessToMatter } from "./brightness.js";
 import type { PendingCauseTracker } from "./cause.js";
 import { withTimeout } from "./timeout.js";
+
+/** How long Identify tells the device to blink, in seconds. */
+const IDENTIFY_SECONDS = 5;
 
 export type CommandIssuer = {
   cause: "agent" | "user";
@@ -125,5 +132,47 @@ export async function setColor(
     ),
     DEVICE_OPERATION_TIMEOUT_MS,
     `setHueSat(${deviceId})`,
+  );
+}
+
+/**
+ * Blink the endpoint via Identify.
+ * Throws `capability_unsupported` when the cluster is absent.
+ */
+export async function identifyDevice(node: ClientNode, endpointNumber: number): Promise<void> {
+  const endpoint = findEndpoint(node, endpointNumber);
+  if (!endpoint.behaviors.has(IdentifyClient)) {
+    throw new GharError(422, "capability_unsupported", "device does not support identify");
+  }
+  const commands = endpoint.commandsOf(IdentifyClient);
+  await withTimeout(
+    Promise.resolve(commands.identify({ identifyTime: IDENTIFY_SECONDS })),
+    DEVICE_OPERATION_TIMEOUT_MS,
+    `identify(${endpointNumber})`,
+  );
+}
+
+/**
+ * Write the device's Matter node label.
+ * Bridged endpoints keep their own label; everyone else uses the node.
+ */
+export async function writeDeviceLabel(
+  node: ClientNode,
+  endpointNumber: number,
+  name: string,
+): Promise<void> {
+  const endpoint = findEndpoint(node, endpointNumber);
+  if (endpoint.behaviors.has(BridgedDeviceBasicInformationClient)) {
+    await withTimeout(
+      endpoint.setStateOf(BridgedDeviceBasicInformationClient, { nodeLabel: name }),
+      DEVICE_OPERATION_TIMEOUT_MS,
+      `writeLabel(${endpointNumber})`,
+    );
+    return;
+  }
+  await withTimeout(
+    node.setStateOf(BasicInformationClient, { nodeLabel: name }),
+    DEVICE_OPERATION_TIMEOUT_MS,
+    "writeNodeLabel",
   );
 }

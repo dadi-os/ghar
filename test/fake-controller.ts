@@ -52,6 +52,19 @@ export class FakeController implements MatterController {
     await this.#dispatch(deviceId, "brightness", percent, issuer);
   }
 
+  async identify(deviceId: string): Promise<void> {
+    this.commands.push({ kind: "identify", deviceId, args: {}, issuer: { cause: "user" } });
+  }
+
+  async setLabel(deviceId: string, name: string): Promise<void> {
+    this.commands.push({
+      kind: "label",
+      deviceId,
+      args: { name },
+      issuer: { cause: "user" },
+    });
+  }
+
   async setColor(deviceId: string, color: ColorCommand, issuer: CommandIssuer): Promise<void> {
     this.commands.push({ kind: "color", deviceId, args: color, issuer });
     if ("colorTempMireds" in color) {

@@ -23,9 +23,11 @@ import type { MatterController, CommissionRequest } from "./controller-api.js";
 import { PendingCauseTracker } from "./cause.js";
 import { CommissioningService, type CommissionJob } from "./commissioning.js";
 import {
+  identifyDevice,
   setBrightness,
   setColor,
   setOnOff,
+  writeDeviceLabel,
   type ColorCommand,
   type CommandIssuer,
 } from "./commands.js";
@@ -182,6 +184,24 @@ export class FabricController implements MatterController {
     try {
       const { node, endpoint } = await this.#resolveDevice(deviceId);
       await setColor(node, endpoint, deviceId, color, this.causes, issuer);
+    } catch (err) {
+      this.#mapCommandError(err);
+    }
+  }
+
+  async identify(deviceId: string): Promise<void> {
+    try {
+      const { node, endpoint } = await this.#resolveDevice(deviceId);
+      await identifyDevice(node, endpoint);
+    } catch (err) {
+      this.#mapCommandError(err);
+    }
+  }
+
+  async setLabel(deviceId: string, name: string): Promise<void> {
+    try {
+      const { node, endpoint } = await this.#resolveDevice(deviceId);
+      await writeDeviceLabel(node, endpoint, name);
     } catch (err) {
       this.#mapCommandError(err);
     }

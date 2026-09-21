@@ -1,16 +1,23 @@
 /** Persist commissioned endpoints into the Postgres registry. */
 
 import { and, eq } from "drizzle-orm";
-import type { ClientNode } from "@matter/main";
+import type { ClientNode, Endpoint } from "@matter/main";
 import { BasicInformationClient } from "@matter/main/behaviors/basic-information";
 import { BridgedDeviceBasicInformationClient } from "@matter/main/behaviors/bridged-device-basic-information";
 import { ColorControlClient } from "@matter/main/behaviors/color-control";
 import { DescriptorClient } from "@matter/main/behaviors/descriptor";
+import { FixedLabelClient } from "@matter/main/behaviors/fixed-label";
 import { UserLabelClient } from "@matter/main/behaviors/user-label";
 import type { Db } from "../db/client.js";
 import { deviceCapabilities, devices, rooms } from "../db/schema.js";
 import { deriveCapabilities, type CapabilityRecord } from "./capabilities.js";
 import type { Logger } from "../logging.js";
+import { withTimeout } from "./timeout.js";
+
+/** Budget for one nodeLabel or label-list read during sync. */
+const LABEL_READ_MS = 2_000;
+
+type LabelList = ReadonlyArray<{ label: string; value: string }> | undefined;
 
 export type RegisteredDevice = {
   id: string;
@@ -133,6 +140,139 @@ export function isStockDeviceName(name: string, productName: string | null): boo
 }
 
 /**
+ * Fresh attribute read. Returns undefined when the read fails; the caller
+ * keeps the subscription cache. The failure is logged.
+ */
+async function readFresh<T>(
+  read: () => Promise<T>,
+  log: Logger,
+  label: string,
+): Promise<T | undefined> {
+  try {
+    return await withTimeout(read(), LABEL_READ_MS, label);
+  } catch (err) {
+    log.warn("matter label read failed", {
+      label,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return undefined;
+  }
+}
+
+function asLabelList(value: unknown): LabelList {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const list: Array<{ label: string; value: string }> = [];
+  for (const entry of value) {
+    if (
+      entry !== null &&
+      typeof entry === "object" &&
+      "label" in entry &&
+      "value" in entry &&
+      typeof entry.label === "string" &&
+      typeof entry.value === "string"
+    ) {
+      list.push({ label: entry.label, value: entry.value });
+    }
+  }
+  return list;
+}
+
+/** Live names. A user or fixed label wins, then nodeLabel, then productLabel. */
+async function readNodeNames(
+  node: ClientNode,
+  log: Logger,
+): Promise<{ vendorName: string | null; productName: string | null; nodeLabel: string | null }> {
+  const cachedBasic = node.maybeStateOf(BasicInformationClient);
+  const fresh =
+    (await readFresh(
+      () =>
+        node.getStateOf(BasicInformationClient, [
+          "vendorName",
+          "productName",
+          "productLabel",
+          "nodeLabel",
+        ]),
+      log,
+      "basic-information",
+    )) ?? cachedBasic;
+  const productName = fresh?.productName ?? null;
+  const cachedUser = node.maybeStateOf(UserLabelClient);
+  const user = node.behaviors.has(UserLabelClient)
+    ? ((await readFresh(
+        () => node.getStateOf(UserLabelClient, ["labelList"]),
+        log,
+        "user-label",
+      )) ?? cachedUser)
+    : cachedUser;
+  const cachedFixed = node.maybeStateOf(FixedLabelClient);
+  const fixed = node.behaviors.has(FixedLabelClient)
+    ? ((await readFresh(
+        () => node.getStateOf(FixedLabelClient, ["labelList"]),
+        log,
+        "fixed-label",
+      )) ?? cachedFixed)
+    : cachedFixed;
+  const nodeLabel =
+    userLabelName(asLabelList(user?.labelList), productName) ??
+    userLabelName(asLabelList(fixed?.labelList), productName) ??
+    distinctDeviceLabel(fresh?.nodeLabel, productName) ??
+    distinctDeviceLabel(fresh?.productLabel, productName);
+  log.info("matter node labels", {
+    node_label: fresh?.nodeLabel ?? null,
+    product_label: fresh?.productLabel ?? null,
+    product: productName,
+    chosen: nodeLabel,
+  });
+  return {
+    vendorName: fresh?.vendorName ?? null,
+    productName,
+    nodeLabel,
+  };
+}
+
+/** Live endpoint label from the bridge cluster, then user and fixed labels. */
+async function readEndpointLabel(
+  endpoint: Endpoint,
+  productName: string | null,
+  log: Logger,
+  endpointNumber: number,
+): Promise<string | null> {
+  const cachedBridged = endpoint.maybeStateOf(BridgedDeviceBasicInformationClient);
+  const bridged = endpoint.behaviors.has(BridgedDeviceBasicInformationClient)
+    ? ((await readFresh(
+        () =>
+          endpoint.getStateOf(BridgedDeviceBasicInformationClient, ["nodeLabel", "productLabel"]),
+        log,
+        `bridged-basic-${endpointNumber}`,
+      )) ?? cachedBridged)
+    : cachedBridged;
+  const cachedUser = endpoint.maybeStateOf(UserLabelClient);
+  const user = endpoint.behaviors.has(UserLabelClient)
+    ? ((await readFresh(
+        () => endpoint.getStateOf(UserLabelClient, ["labelList"]),
+        log,
+        `user-label-${endpointNumber}`,
+      )) ?? cachedUser)
+    : cachedUser;
+  const cachedFixed = endpoint.maybeStateOf(FixedLabelClient);
+  const fixed = endpoint.behaviors.has(FixedLabelClient)
+    ? ((await readFresh(
+        () => endpoint.getStateOf(FixedLabelClient, ["labelList"]),
+        log,
+        `fixed-label-${endpointNumber}`,
+      )) ?? cachedFixed)
+    : cachedFixed;
+  return (
+    userLabelName(asLabelList(user?.labelList), productName) ??
+    userLabelName(asLabelList(fixed?.labelList), productName) ??
+    distinctDeviceLabel(bridged?.nodeLabel, productName) ??
+    distinctDeviceLabel(bridged?.productLabel, productName)
+  );
+}
+
+/**
  * Upsert one Postgres row per controllable endpoint on a commissioned peer.
  * Endpoints with no Ghar capabilities are skipped.
  *
@@ -152,13 +292,10 @@ export async function syncNodeToRegistry(
     throw new Error("cannot sync uncommissioned node");
   }
   const nodeId = BigInt(peerAddress.nodeId);
-  const basic = node.maybeStateOf(BasicInformationClient);
-  const vendorName = basic?.vendorName ?? null;
-  const productName = basic?.productName ?? null;
-  const nodeUser = node.maybeStateOf(UserLabelClient);
-  const nodeLabel =
-    distinctDeviceLabel(basic?.nodeLabel, productName) ??
-    userLabelName(nodeUser?.labelList, productName);
+  const names = await readNodeNames(node, log);
+  const vendorName = names.vendorName;
+  const productName = names.productName;
+  const nodeLabel = names.nodeLabel;
   const roomId = placeRoomId ?? (await unassignedRoomId(db));
   const registered: RegisteredDevice[] = [];
 
@@ -186,11 +323,7 @@ export async function syncNodeToRegistry(
       continue;
     }
 
-    const bridged = endpoint.maybeStateOf(BridgedDeviceBasicInformationClient);
-    const userLabels = endpoint.maybeStateOf(UserLabelClient);
-    const endpointLabel =
-      distinctDeviceLabel(bridged?.nodeLabel, productName) ??
-      userLabelName(userLabels?.labelList, productName);
+    const endpointLabel = await readEndpointLabel(endpoint, productName, log, endpointNumber);
     pending.push({ endpointNumber, capabilities, endpointLabel });
   }
 
