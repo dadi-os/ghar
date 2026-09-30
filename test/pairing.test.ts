@@ -4,7 +4,6 @@ import { ManualPairingCodeCodec } from "@matter/main/types";
 import { decodePairingCode } from "../src/matter/pairing.js";
 
 test("decodePairingCode accepts a library-encoded manual code", () => {
-  // Encode via the library so we do not hand-parse digits.
   const encoded = ManualPairingCodeCodec.encode({
     passcode: 20202021,
     discriminator: 3840,

@@ -23,6 +23,7 @@ export function toAttributeState(attr: CachedAttribute): AttributeState {
   };
 }
 
+/** A device's cached attributes as the API's attribute-state map. */
 export function toStateMap(
   attrs: ReadonlyMap<string, CachedAttribute> | undefined,
 ): Record<string, AttributeState> {

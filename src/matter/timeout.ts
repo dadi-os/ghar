@@ -1,5 +1,6 @@
 /** Abortable wall-clock timeout for Matter device operations. */
 
+/** A device operation that did not answer within its timeout; routes map it to 504. */
 export class DeviceTimeoutError extends Error {
   constructor(label: string, timeoutMs: number) {
     super(`${label} timed out after ${timeoutMs}ms`);

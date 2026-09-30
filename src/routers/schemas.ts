@@ -154,6 +154,7 @@ export const eventsQuery = z
   })
   .strict();
 
+/** Normalizes a repeated query parameter, which arrives as a string when given once. */
 export function asStringList(value: string | string[] | undefined): string[] | undefined {
   if (value === undefined) {
     return undefined;

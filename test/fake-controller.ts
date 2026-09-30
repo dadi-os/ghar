@@ -150,7 +150,6 @@ export class FakeController implements MatterController {
       throw new DeviceTimeoutError(`command(${deviceId})`, 5000);
     }
     this.causes.note(deviceId, attributeKey, issuer.cause, issuer.causeRef);
-    // Ensure prior value exists so applyObservation writes an event.
     if (this.cache.get(deviceId, attributeKey) === undefined) {
       const seedValue = attributeKey === "on" ? !value : typeof value === "number" ? value - 1 : null;
       this.cache.set(deviceId, attributeKey, seedValue, { touchChangedAt: true });

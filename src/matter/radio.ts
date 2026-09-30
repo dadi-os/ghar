@@ -1,13 +1,13 @@
 /**
- * One Hath Bluetooth radio, reached over HTTP long-poll.
- * Ghar's Matter stack sends GATT commands; Hath executes them on the
+ * One device Bluetooth radio, reached over HTTP long-poll.
+ * Ghar's Matter stack sends GATT commands; the device executes them on the
  * computer that is standing next to the device.
  */
 
 import { randomUUID } from "node:crypto";
 import { GharError } from "../errors.js";
 
-/** Command Hath runs against its local Bluetooth adapter. */
+/** Command the device runs against its local Bluetooth adapter. */
 export type RadioCommandName =
   | "scan"
   | "stop_scan"
@@ -23,7 +23,7 @@ export type RadioCommand = {
   args: Record<string, string>;
 };
 
-/** Unsolicited bytes or a drop, posted by Hath. */
+/** Unsolicited bytes or a drop, posted by the device. */
 export type RadioEvent = {
   kind: "advertisement" | "notification" | "disconnected";
   address: string;
@@ -53,7 +53,7 @@ export class RadioHub {
   #waiters = new Map<number, Waiter>();
   #listeners = new Set<(event: RadioEvent) => void>();
 
-  /** True while a Hath client holds the radio session. */
+  /** True while a device holds the radio session. */
   get attached(): boolean {
     return this.#session !== null;
   }
@@ -61,13 +61,13 @@ export class RadioHub {
   /** Open the only radio session. */
   attach(): { session_id: string } {
     if (this.#session) {
-      throw new GharError(409, "conflict", "a hath radio is already attached");
+      throw new GharError(409, "conflict", "a device radio is already attached");
     }
     this.#session = randomUUID();
     return { session_id: this.#session };
   }
 
-  /** Drop the session and fail every command still waiting on Hath. Already released is a no-op. */
+  /** Drop the session and fail every command still waiting on the device. Already released is a no-op. */
   detach(sessionId: string): void {
     if (this.#session === null) {
       return;
@@ -101,7 +101,7 @@ export class RadioHub {
     });
   }
 
-  /** Complete a command Hath finished. */
+  /** Complete a command the device finished. */
   reply(
     sessionId: string,
     id: number,
@@ -143,7 +143,7 @@ export class RadioHub {
   }
 
   /**
-   * Ask the attached Hath to run one command.
+   * Ask the attached device to run one command.
    * Rejects immediately when no radio is attached.
    */
   request(
@@ -152,7 +152,7 @@ export class RadioHub {
     timeoutMs = 20_000,
   ): Promise<unknown> {
     if (!this.#session) {
-      return Promise.reject(new Error("radio_unavailable: no hath radio is attached"));
+      return Promise.reject(new Error("radio_unavailable: no device radio is attached"));
     }
     const id = ++this.#seq;
     const command: RadioCommand = { id, name, args };

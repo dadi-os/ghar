@@ -1,5 +1,5 @@
 /**
- * Hath Bluetooth radio. Commands are long-polled; advertisements and
+ * Device Bluetooth radio. Commands are long-polled; advertisements and
  * notifications are posted back as events.
  */
 

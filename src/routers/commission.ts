@@ -21,7 +21,7 @@ export async function registerCommission(app: FastifyInstance): Promise<void> {
       }
     }
     if (radio === "nearby" && !app.controller.radioAttached()) {
-      throw new GharError(422, "radio_unavailable", "no hath radio is attached");
+      throw new GharError(422, "radio_unavailable", "no device radio is attached");
     }
     try {
       const job = app.controller.startCommission({

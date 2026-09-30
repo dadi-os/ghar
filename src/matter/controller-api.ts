@@ -8,7 +8,7 @@ import type { ColorCommand, CommandIssuer } from "./commands.js";
 import type { RadioCommand, RadioEvent } from "./radio.js";
 import type { StateCache } from "./state-cache.js";
 
-/** Where discovery runs. `nearby` uses the attached Hath Bluetooth radio. */
+/** Where discovery runs. `nearby` uses the attached device Bluetooth radio. */
 export type CommissionRadio = "network" | "nearby";
 
 /** Wi-Fi credentials sent to the device during nearby commissioning. Not stored. */
@@ -44,7 +44,7 @@ export type MatterController = {
   removeDevice(deviceId: string): Promise<void>;
   startCommission(request: CommissionRequest): CommissionJob;
   getCommissionJob(id: string): CommissionJob | undefined;
-  /** True while a Hath client holds the Bluetooth radio session. */
+  /** True while a device holds the Bluetooth radio session. */
   radioAttached(): boolean;
   /** Open the only radio session. */
   attachRadio(): { session_id: string };

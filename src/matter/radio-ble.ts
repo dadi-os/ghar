@@ -1,5 +1,5 @@
 /**
- * Matter {@link Ble} whose scanner and GATT central are a Hath radio.
+ * Matter {@link Ble} whose scanner and GATT central are a device radio.
  * BTP stays in matter.js; only the air interface is forwarded.
  */
 
@@ -61,7 +61,7 @@ class RadioScanClient implements BleScannerClient {
 }
 
 /**
- * BLE channel over one Hath GATT connection.
+ * BLE channel over one device GATT connection.
  * `send` is a Matter payload; the iterator yields Matter payloads after BTP.
  */
 class RadioChannel extends BleChannel {
@@ -293,7 +293,7 @@ class RadioTransport implements Transport {
     });
   }
 
-  /** Route a Hath event to the open handshake, the BTP sink, or the pending queue. */
+  /** Route a device event to the open handshake, the BTP sink, or the pending queue. */
   #onEvent(event: RadioEvent): void {
     if (event.kind === "disconnected") {
       const waiter = this.#waiter.get(event.address);
