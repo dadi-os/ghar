@@ -27,6 +27,8 @@ export type CommissionRequest = {
 
 export type MatterController = {
   readonly cache: StateCache;
+  /** Why the controller failed to start; undefined while starting or once ready. */
+  readonly startFailure: Error | undefined;
   getState(deviceId: string): ReadonlyMap<string, { value: unknown; changedAt: Date }> | undefined;
   /** Snapshot of every cached device attribute map. */
   getAllState(): Map<string, ReadonlyMap<string, { value: unknown; changedAt: Date }>>;

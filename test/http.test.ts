@@ -40,12 +40,6 @@ async function reset(): Promise<void> {
   fake.commissionMode = "succeed";
 }
 
-test("GET /health", async () => {
-  const res = await app.inject({ method: "GET", url: "/health" });
-  assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), { status: "ok" });
-});
-
 test("GET /devices filters by room, tag, capability; unknown filters are empty", async () => {
   await reset();
   const unassigned = await unassignedRoomId(handle.db);

@@ -75,7 +75,17 @@ export async function buildApp(
     });
   });
 
-  app.get("/health", async () => ({ status: "ok" }));
+  app.get("/health", async () => {
+    const failure = deps.controller.startFailure;
+    if (failure) {
+      throw new GharError(
+        503,
+        "matter_unavailable",
+        `Matter controller failed to start: ${failure.message}`,
+      );
+    }
+    return { status: "ok" };
+  });
   await app.register(registerRoutes);
   return app;
 }

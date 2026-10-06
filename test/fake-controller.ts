@@ -25,6 +25,7 @@ export class FakeController implements MatterController {
     [];
   commissionMode: FakeCommissionMode = "succeed";
   unreachable = false;
+  startFailure: Error | undefined;
   readonly #jobs = new Map<string, CommissionJob>();
   readonly #db: Db;
   readonly #log = createLogger();

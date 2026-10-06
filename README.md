@@ -53,21 +53,21 @@ Source is bind-mounted; edits restart in place. Matter discovery does not work o
 
 Logs follow the nas JSON contract (`service=ghar`, request summary with `request_id` / `duration_ms`, errors with `code`). Default Fastify access logging is off. Process-level Matter/boot lines use the same JSON shape via `createLogger()`.
 
-HTTP errors: `{ "error": { "type": "<code>", "message": "..." } }`. Shared codes include `invalid_request`, `not_found`, `conflict`, `internal_error`. Domain codes include `commissioning_failed`, `device_unreachable`, `radio_unavailable`. See nas README for the shared catalog.
+HTTP errors: `{ "error": { "type": "<code>", "message": "..." } }`. Shared codes include `invalid_request`, `not_found`, `conflict`, `internal_error`. Domain codes include `commissioning_failed`, `device_unreachable`, `radio_unavailable`, `matter_unavailable`, `peer_delete_failed`. See nas README for the shared catalog.
 
 ## Matter / fabric
 
-The HTTP server listens before the Matter controller finishes starting. Until the controller is ready, command and commission routes return `503 internal_error`. On the appliance, Ghar uses `Network=host` with loopback HTTP bind; fabric storage lives on the `ghar_matter` volume and must survive image updates.
+The HTTP server listens before the Matter controller finishes starting. Until the controller is ready, command and commission routes return `503 internal_error`. If the controller fails to start, `/health` returns `503 matter_unavailable` with the real reason, so Nas status shows Ghar unhealthy. On the appliance, Ghar uses `Network=host` with loopback HTTP bind; fabric storage lives on the `ghar_matter` volume and must survive image updates.
 
 ## Routes
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| `GET` | `/health` | `{ "status": "ok" }` |
+| `GET` | `/health` | `{ "status": "ok" }`; `503 matter_unavailable` when the Matter controller failed to start |
 | `GET` | `/devices` | filter by `room`, `tag`, `capability` |
 | `GET` | `/devices/:id` | device detail |
 | `PATCH` | `/devices/:id` | name, room, tags |
-| `DELETE` | `/devices/:id` | remove registry row / peer |
+| `DELETE` | `/devices/:id` | remove registry row / peer; `500 peer_delete_failed` when the peer cannot be removed from the fabric |
 | `POST` | `/devices/:id/command` | capability + params; optional `cause` / `cause_ref` |
 | `POST` | `/devices/:id/identify` | blink the device for a few seconds |
 | `GET` | `/rooms` | list rooms |

@@ -65,6 +65,7 @@ export class FabricController implements MatterController {
   #server: ServerNode | undefined;
   #commissioning: CommissioningService | undefined;
   #environment: Environment | undefined;
+  #startFailure: Error | undefined;
   readonly #radio = new RadioHub();
 
   constructor(opts: FabricControllerOptions) {
@@ -87,8 +88,24 @@ export class FabricController implements MatterController {
     return this.#server;
   }
 
-  /** Start the controller, reconnect peers, and rebuild the state cache. */
+  get startFailure(): Error | undefined {
+    return this.#startFailure;
+  }
+
+  /**
+   * Start the controller, reconnect peers, and rebuild the state cache.
+   * A failure is kept as `startFailure` so `/health` reports it, then rethrown.
+   */
   async start(): Promise<void> {
+    try {
+      await this.#start();
+    } catch (err) {
+      this.#startFailure = err instanceof Error ? err : new Error(String(err));
+      throw err;
+    }
+  }
+
+  async #start(): Promise<void> {
     mkdirSync(this.#matterStoragePath, { recursive: true });
 
     const environment = new Environment(CONTROLLER_NODE_ID, Environment.default);
@@ -272,7 +289,19 @@ export class FabricController implements MatterController {
             node_id: nodeKey,
             err: message,
           });
-          await bound.node.delete().catch(() => undefined);
+          await bound.node.delete().catch((deleteErr: unknown) => {
+            const deleteMessage = deleteErr instanceof Error ? deleteErr.message : String(deleteErr);
+            this.#log.error("fabric peer force-delete failed", {
+              code: "peer_delete_failed",
+              node_id: nodeKey,
+              err: deleteMessage,
+            });
+            throw new GharError(
+              500,
+              "peer_delete_failed",
+              `device removed from registry but Matter peer ${nodeKey} could not be deleted: ${deleteMessage}`,
+            );
+          });
         }
       }
     }

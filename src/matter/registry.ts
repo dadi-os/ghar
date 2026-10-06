@@ -17,6 +17,12 @@ import { withTimeout } from "./timeout.js";
 /** Budget for one nodeLabel or label-list read during sync. */
 const LABEL_READ_MS = 2_000;
 
+/**
+ * Product default name for an endpoint whose node reports no endpoint label,
+ * node label, or product name. Stock names are replaced on a later sync.
+ */
+const DEFAULT_DEVICE_NAME = "Device";
+
 type LabelList = ReadonlyArray<{ label: string; value: string }> | undefined;
 
 export type RegisteredDevice = {
@@ -80,7 +86,7 @@ export function endpointDisplayName(input: {
   peersSharingLabel: number;
 }): string {
   const base =
-    input.endpointLabel ?? input.nodeLabel ?? (input.productName?.trim() || "Device");
+    input.endpointLabel ?? input.nodeLabel ?? (input.productName?.trim() || DEFAULT_DEVICE_NAME);
   if (input.peersSharingLabel > 1) {
     return `${base} (${input.endpoint})`;
   }
@@ -122,7 +128,7 @@ function userLabelName(
  */
 export function isStockDeviceName(name: string, productName: string | null): boolean {
   const trimmed = name.trim();
-  if (!trimmed || trimmed === "Device") {
+  if (!trimmed || trimmed === DEFAULT_DEVICE_NAME) {
     return true;
   }
   if (/^device-\d+-\d+$/i.test(trimmed)) {
@@ -329,13 +335,13 @@ export async function syncNodeToRegistry(
 
   const sharing = new Map<string, number>();
   for (const item of pending) {
-    const base = item.endpointLabel ?? nodeLabel ?? (productName?.trim() || "Device");
+    const base = item.endpointLabel ?? nodeLabel ?? (productName?.trim() || DEFAULT_DEVICE_NAME);
     sharing.set(base, (sharing.get(base) ?? 0) + 1);
   }
 
   for (const item of pending) {
     const { endpointNumber, capabilities } = item;
-    const base = item.endpointLabel ?? nodeLabel ?? (productName?.trim() || "Device");
+    const base = item.endpointLabel ?? nodeLabel ?? (productName?.trim() || DEFAULT_DEVICE_NAME);
     const peers = sharing.get(base);
     if (peers === undefined) {
       throw new Error(`endpoint label was not counted: ${base}`);

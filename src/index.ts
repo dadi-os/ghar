@@ -1,7 +1,8 @@
 /**
  * Process entry: migrate, listen, then bring up the Matter controller.
  * HTTP listens before Matter is ready; command and commission routes fail
- * loudly at the point of use until `FabricController.start` succeeds.
+ * loudly at the point of use until `FabricController.start` succeeds. A failed
+ * start turns `/health` into `503 matter_unavailable` with the real reason.
  */
 
 import { buildApp } from "./app.js";
@@ -53,5 +54,5 @@ void fabric
   })
   .catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
-    log.error("matter controller failed to start", { err: message });
+    log.error("matter controller failed to start", { code: "matter_start_failed", err: message });
   });
