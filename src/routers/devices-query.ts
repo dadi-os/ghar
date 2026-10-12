@@ -22,6 +22,7 @@ export type DeviceFilters = {
   room?: string | undefined;
   tag?: string | undefined;
   capability?: DeviceCapabilityRow["capability"] | undefined;
+  kind?: DeviceRow["kind"] | undefined;
 };
 
 async function loadDeviceBundle(
@@ -91,6 +92,9 @@ function toRecord(
     nodeId: device.nodeId,
     endpoint: device.endpoint,
     name: device.name,
+    kind: device.kind,
+    deviceTypes: device.deviceTypes,
+    bridgeName: device.bridgeName,
     online: device.online,
     lastSeenAt: device.lastSeenAt,
     vendorName: device.vendorName,
@@ -105,7 +109,7 @@ function toRecord(
   });
 }
 
-/** List devices with optional room/tag/capability filters. Unknown filters → empty list. */
+/** List devices with optional room/tag/capability/kind filters. Unknown filters → empty list. */
 export async function listDevices(
   db: Db,
   controller: MatterController,
@@ -159,6 +163,10 @@ export async function listDevices(
     );
   }
 
+  if (filters.kind !== undefined) {
+    conditions.push(eq(devices.kind, filters.kind));
+  }
+
   const deviceRows =
     conditions.length === 0
       ? await db.select().from(devices)
@@ -188,13 +196,24 @@ export async function getDevice(
   return toRecord(device, bundle.roomsById, bundle.capsByDevice, bundle.tagsByDevice, controller);
 }
 
-/** Capability names present on a device. */
-export async function deviceCapabilitySet(db: Db, deviceId: string): Promise<Set<string>> {
+/**
+ * The config of one capability on a device, or `capability_unsupported` when the device
+ * does not have it.
+ */
+export async function deviceCapabilityConfig(
+  db: Db,
+  deviceId: string,
+  capability: DeviceCapabilityRow["capability"],
+): Promise<Record<string, unknown>> {
   const rows = await db
-    .select({ capability: deviceCapabilities.capability })
+    .select({ config: deviceCapabilities.config })
     .from(deviceCapabilities)
-    .where(eq(deviceCapabilities.deviceId, deviceId));
-  return new Set(rows.map((r) => r.capability));
+    .where(and(eq(deviceCapabilities.deviceId, deviceId), eq(deviceCapabilities.capability, capability)));
+  const row = rows[0];
+  if (!row) {
+    throw new GharError(422, "capability_unsupported", `device does not support capability ${capability}`);
+  }
+  return row.config;
 }
 
 /** True when a unique-violation style postgres error mentions the given constraint fragment. */

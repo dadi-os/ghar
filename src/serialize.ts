@@ -57,6 +57,9 @@ export function toDeviceRecord(args: {
   nodeId: bigint;
   endpoint: number;
   name: string;
+  kind: DeviceRecord["kind"];
+  deviceTypes: number[];
+  bridgeName: string | null;
   online: boolean;
   lastSeenAt: Date | null;
   vendorName: string | null;
@@ -71,6 +74,9 @@ export function toDeviceRecord(args: {
     node_id: args.nodeId.toString(),
     endpoint: args.endpoint,
     name: args.name,
+    kind: args.kind,
+    device_types: args.deviceTypes,
+    bridge_name: args.bridgeName,
     room: toRoomRecord(args.room),
     tags: args.tags.map((t) => ({ id: t.id, name: t.name })),
     capabilities: args.capabilities.map(toCapabilityRecord),
