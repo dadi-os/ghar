@@ -15,18 +15,13 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { CAPABILITIES, DEVICE_KINDS } from "../matter/capabilities.js";
 
 const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 
-export const deviceCapabilityEnum = pgEnum("device_capability", [
-  "switchable",
-  "dimmable",
-  "colorable",
-  "sensor",
-  "lockable",
-  "media",
-  "thermostat",
-]);
+export const deviceCapabilityEnum = pgEnum("device_capability", CAPABILITIES);
+
+export const deviceKindEnum = pgEnum("device_kind", DEVICE_KINDS);
 
 export const eventCauseEnum = pgEnum("event_cause", ["agent", "user", "external"]);
 
@@ -42,6 +37,8 @@ export const rooms = pgTable(
 /**
  * One row per controllable Matter endpoint. A single node may expose several
  * endpoints (e.g. a multi-outlet strip); the unique key is (node_id, endpoint).
+ * `kind` and `device_types` come from the endpoint's Descriptor. `bridge_name` is the
+ * bridge's product name when the endpoint is a device behind a bridge.
  */
 export const devices = pgTable(
   "devices",
@@ -50,6 +47,9 @@ export const devices = pgTable(
     nodeId: bigint("node_id", { mode: "bigint" }).notNull(),
     endpoint: integer("endpoint").notNull(),
     name: text("name").notNull(),
+    kind: deviceKindEnum("kind").notNull(),
+    deviceTypes: integer("device_types").array().notNull(),
+    bridgeName: text("bridge_name"),
     roomId: uuid("room_id")
       .notNull()
       .references(() => rooms.id, { onDelete: "restrict" }),

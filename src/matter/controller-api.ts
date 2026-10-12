@@ -4,7 +4,7 @@
  */
 
 import type { CommissionJob } from "./commissioning.js";
-import type { ColorCommand, CommandIssuer } from "./commands.js";
+import type { CommandIssuer, DeviceCommand } from "./commands/index.js";
 import type { RadioCommand, RadioEvent } from "./radio.js";
 import type { StateCache } from "./state-cache.js";
 
@@ -32,9 +32,11 @@ export type MatterController = {
   getState(deviceId: string): ReadonlyMap<string, { value: unknown; changedAt: Date }> | undefined;
   /** Snapshot of every cached device attribute map. */
   getAllState(): Map<string, ReadonlyMap<string, { value: unknown; changedAt: Date }>>;
-  setOn(deviceId: string, on: boolean, issuer: CommandIssuer): Promise<void>;
-  setBrightness(deviceId: string, percent: number, issuer: CommandIssuer): Promise<void>;
-  setColor(deviceId: string, color: ColorCommand, issuer: CommandIssuer): Promise<void>;
+  /**
+   * Run a validated command on a device. `capability_unsupported` when the device lacks the
+   * capability, `device_unreachable` when it does not answer, `command_rejected` when it refuses.
+   */
+  command(deviceId: string, cmd: DeviceCommand, issuer: CommandIssuer): Promise<void>;
   /** Blink the device through the Identify cluster. */
   identify(deviceId: string): Promise<void>;
   /** Write the Matter node label. The registry name is updated by the route. */

@@ -75,3 +75,41 @@ export async function applyObservation(
     cause_ref: attribution.causeRef,
   });
 }
+
+/** A cluster event a device reported, such as a button press or a lock operation. */
+export type EventObservation = {
+  deviceId: string;
+  attributeKey: string;
+  value: unknown;
+  at?: Date;
+};
+
+/**
+ * Log a cluster event. Unlike an attribute, every occurrence is a row, even when it repeats
+ * the last one (two presses of the same button). The cache keeps the latest occurrence.
+ */
+export async function applyEvent(
+  deps: {
+    db: Db;
+    cache: StateCache;
+    causes: PendingCauseTracker;
+    log: Logger;
+  },
+  observation: EventObservation,
+): Promise<void> {
+  const at = observation.at ?? new Date();
+  const previous = deps.cache.set(observation.deviceId, observation.attributeKey, observation.value, {
+    at,
+    touchChangedAt: true,
+  });
+  const attribution = deps.causes.attribute(observation.deviceId, observation.attributeKey);
+  await deps.db.insert(eventLogs).values({
+    deviceId: observation.deviceId,
+    attributeKey: observation.attributeKey,
+    oldValue: previous?.value ?? null,
+    newValue: observation.value,
+    cause: attribution.cause,
+    causeRef: attribution.causeRef ?? null,
+    createdAt: at,
+  });
+}

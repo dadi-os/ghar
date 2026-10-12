@@ -15,7 +15,10 @@ ghar/
   src/
     app.ts, config.ts, logging.ts, errors.ts, constants.ts
     db/           Drizzle client, schema, migrate, seed
-    matter/       fabric controller, commissioning, subscriptions, commands
+    matter/       fabric controller, commissioning, registry, subscriptions
+      capabilities.ts  device kind + capabilities from an endpoint's Descriptor and features
+      attributes.ts    attributes cached and cluster events logged, with their Ghar units
+      commands/        command table by capability (lighting, covers, climate, appliances, media)
     routers/      HTTP routes + schemas
     types/        domain types
   test/
@@ -53,7 +56,7 @@ Source is bind-mounted; edits restart in place. Matter discovery does not work o
 
 Logs follow the nas JSON contract (`service=ghar`, request summary with `request_id` / `duration_ms`, errors with `code`). Default Fastify access logging is off. Process-level Matter/boot lines use the same JSON shape via `createLogger()`.
 
-HTTP errors: `{ "error": { "type": "<code>", "message": "..." } }`. Shared codes include `invalid_request`, `not_found`, `conflict`, `internal_error`. Domain codes include `commissioning_failed`, `device_unreachable`, `radio_unavailable`, `matter_unavailable`, `peer_delete_failed`. See nas README for the shared catalog.
+HTTP errors: `{ "error": { "type": "<code>", "message": "..." } }`. Shared codes include `invalid_request`, `not_found`, `conflict`, `internal_error`. Domain codes include `commissioning_failed`, `capability_unsupported`, `command_rejected` (the device refused a command it received), `device_unreachable`, `radio_unavailable`, `matter_unavailable`, `peer_delete_failed`. See nas README for the shared catalog.
 
 ## Matter / fabric
 
@@ -64,11 +67,11 @@ The HTTP server listens before the Matter controller finishes starting. Until th
 | Method | Path | Notes |
 | --- | --- | --- |
 | `GET` | `/health` | `{ "status": "ok" }`; `503 matter_unavailable` when the Matter controller failed to start |
-| `GET` | `/devices` | filter by `room`, `tag`, `capability` |
+| `GET` | `/devices` | filter by `room`, `tag`, `capability`, `kind` |
 | `GET` | `/devices/:id` | device detail |
 | `PATCH` | `/devices/:id` | name, room, tags |
 | `DELETE` | `/devices/:id` | remove registry row / peer; `500 peer_delete_failed` when the peer cannot be removed from the fabric |
-| `POST` | `/devices/:id/command` | capability + params; optional `cause` / `cause_ref` |
+| `POST` | `/devices/:id/command` | `capability`, `command`, `params`; optional `cause` / `cause_ref` (see Devices) |
 | `POST` | `/devices/:id/identify` | blink the device for a few seconds |
 | `GET` | `/rooms` | list rooms |
 | `POST` | `/rooms` | create room |
@@ -86,3 +89,31 @@ The HTTP server listens before the Matter controller finishes starting. Until th
 | `POST` | `/radio/event` | advertisement, notification, or disconnect |
 
 Unknown request fields are a 422.
+
+## Devices
+
+Each controllable endpoint is one device. Its `kind` comes from the first application device type in its Descriptor (`light`, `plug`, `switch`, `cover`, `fan`, `thermostat`, `lock`, `contact`, `leak`, `air_quality`, `smoke_alarm`, `energy_meter`, `valve`, `robot_vacuum`, `washer`, `dishwasher`, `refrigerator`, `oven`, `speaker`, `tv`, `camera`, `bridge`, … see `DEVICE_KINDS`). A bridge's aggregator is listed with no capabilities; devices behind it carry `bridge_name`. Capabilities and their config are re-derived on every reconnect.
+
+| Capability | State keys | Commands (`params`) |
+| --- | --- | --- |
+| `on_off` | `on` | `on`, `off`, `toggle` |
+| `level` | `brightness` (0–100), `volume` on speakers and TVs | `move_to` (`level` 0–100) |
+| `color` | `color_temp` (mireds), `hue`, `saturation` (0–254), `color_mode` | `temperature` (`mireds`), `hue_saturation` (`hue`, `saturation`) |
+| `cover` | `open_percent`, `tilt_percent`, `moving` | `open`, `close`, `stop`, `go_to_lift` (`percent_open`), `go_to_tilt` (`percent`) |
+| `fan` | `fan_mode`, `fan_percent` | `set_mode` (`mode`), `set_percent` (`percent`) |
+| `thermostat` | `temperature`, `heat_setpoint`, `cool_setpoint` (°C), `system_mode`, `running` | `set_mode` (`mode`), `set_setpoint` (`heat_c` and/or `cool_c`) |
+| `lock` | `locked`, `door_state`; event `lock_operation` | none yet |
+| `sensor` | one key per `config.measurements` (`occupancy`, `temperature`, `humidity`, `contact`, `leak`, `illuminance` lux, `pressure` kPa, `flow` m³/h, `air_quality`, `pm25`, `co2`, …; units in `config.units`) | none |
+| `button` | `position`; event `button` (`action`, `position`, `count`) | none |
+| `alarm` | `smoke_state`, `co_state`, `testing` | `self_test` |
+| `power_source` | `battery` (%) | none |
+| `energy` | `power_w`, `voltage_v`, `current_a`, `energy_kwh` | none |
+| `valve` | `valve`, `open_remaining_s`, `valve_level` | none yet |
+| `rvc` | `run_mode`, `clean_mode`, `operational_state`, `phase`, `countdown_s`, `area` | `pause`, `go_home`, `set_clean_mode` (`mode` from `config.clean_modes`), `select_areas` (`areas` from `config.areas`) |
+| `appliance` | `operational_state`, `phase`, `countdown_s` | `pause`, `stop` |
+| `mode` | `mode` | `change_to` (`mode` from `config.modes`) |
+| `temperature_control` | `target_temperature` (°C), `temperature_level` | `set` (`celsius`, or `level` from `config.levels`) |
+| `media` | `playback`, `input`, `app` | `play`, `pause`, `stop`, `next`, `previous`, `select_input` (`index`), `send_key` (`key`), `launch_app` (`application_id`, `catalog_vendor_id`) |
+| `camera` | `privacy`, `hard_privacy` | `set_privacy` (`enabled`) |
+
+Bridged devices also report `reachable`. Cluster events (`button`, `lock_operation`) write an event row on every occurrence.
