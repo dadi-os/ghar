@@ -108,7 +108,8 @@ Each controllable endpoint is one device. Its `kind` comes from the first applic
 | `alarm` | `smoke_state`, `co_state`, `testing` | `self_test` |
 | `power_source` | `battery` (%) | none |
 | `energy` | `power_w`, `voltage_v`, `current_a`, `energy_kwh` | none |
-| `valve` | `valve`, `open_remaining_s`, `valve_level` | none yet |
+| `valve` | `valve`, `open_remaining_s`, `valve_level` | `open` (optional `duration_s`, `level` when `config.level`), `close` |
+| `pump` | `pump_mode` | `set_mode` (`mode` normal, minimum, maximum, local); run speed through `on_off` and `level` |
 | `rvc` | `run_mode`, `clean_mode`, `operational_state`, `phase`, `countdown_s`, `area` | `pause`, `go_home`, `set_clean_mode` (`mode` from `config.clean_modes`), `select_areas` (`areas` from `config.areas`) |
 | `appliance` | `operational_state`, `phase`, `countdown_s` | `pause`, `stop` |
 | `mode` | `mode` | `change_to` (`mode` from `config.modes`) |

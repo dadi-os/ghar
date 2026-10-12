@@ -179,6 +179,22 @@ test("media, buttons, alarms, energy and camera privacy map to their capabilitie
   );
 });
 
+test("a valve reports whether it can open part way, and a pump has its own capability", () => {
+  assert.deepEqual(
+    deriveCapabilities(endpoint([Behavior.Valve], { features: { valveConfigurationAndControl: { level: true } } }), "valve"),
+    [{ capability: "valve", config: { level: true } }],
+  );
+  assert.deepEqual(names(deriveCapabilities(endpoint([Behavior.OnOff, Behavior.Pump]), "pump")), ["on_off", "pump"]);
+  assert.equal(mapper(Behavior.Pump, "effectiveOperationMode").map(2, {}), "maximum");
+});
+
+test("valve and pump commands validate their params", () => {
+  assert.equal(COMMANDS.valve?.open?.params.safeParse({ duration_s: 900 }).success, true);
+  assert.equal(COMMANDS.valve?.open?.params.safeParse({ duration_s: 0 }).success, false);
+  assert.equal(COMMANDS.pump?.set_mode?.params.safeParse({ mode: "maximum" }).success, true);
+  assert.equal(COMMANDS.pump?.set_mode?.params.safeParse({ mode: "turbo" }).success, false);
+});
+
 test("an endpoint with nothing Ghar reads has no capabilities", () => {
   assert.deepEqual(deriveCapabilities(endpoint(["descriptor", "identify"]), "bridge"), []);
 });

@@ -286,6 +286,7 @@ export const OBSERVED_ATTRIBUTES: readonly ObservedAttribute[] = [
   { behavior: Behavior.Valve, attribute: "currentState", key: "valve", map: named(VALVE_STATES) },
   { behavior: Behavior.Valve, attribute: "remainingDuration", key: "open_remaining_s", map: num },
   { behavior: Behavior.Valve, attribute: "currentLevel", key: "valve_level", map: num },
+  { behavior: Behavior.Pump, attribute: "effectiveOperationMode", key: "pump_mode", map: named(["normal", "minimum", "maximum", "local"]) },
   { behavior: Behavior.RvcRunMode, attribute: "currentMode", key: "run_mode", map: modeLabel },
   { behavior: Behavior.RvcCleanMode, attribute: "currentMode", key: "clean_mode", map: modeLabel },
   ...operational(Behavior.RvcOperationalState),

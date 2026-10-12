@@ -71,6 +71,7 @@ export const CAPABILITIES = [
   "power_source",
   "energy",
   "valve",
+  "pump",
   "rvc",
   "appliance",
   "mode",
@@ -223,6 +224,7 @@ export const Behavior = {
   ElectricalPowerMeasurement: "electricalPowerMeasurement",
   ElectricalEnergyMeasurement: "electricalEnergyMeasurement",
   Valve: "valveConfigurationAndControl",
+  Pump: "pumpConfigurationAndControl",
   RvcRunMode: "rvcRunMode",
   RvcCleanMode: "rvcCleanMode",
   RvcOperationalState: "rvcOperationalState",
@@ -369,6 +371,9 @@ export function deriveCapabilities(descriptor: EndpointDescriptor, kind: DeviceK
   }
   if (has.has(Behavior.Valve)) {
     add("valve", { level: feature(Behavior.Valve, "level") });
+  }
+  if (has.has(Behavior.Pump)) {
+    add("pump");
   }
   if (has.has(Behavior.RvcRunMode) || has.has(Behavior.RvcOperationalState)) {
     add("rvc", {

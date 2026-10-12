@@ -1,0 +1,1 @@
+ALTER TYPE "public"."device_capability" ADD VALUE 'pump' BEFORE 'rvc';

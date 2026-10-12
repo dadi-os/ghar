@@ -15,6 +15,13 @@
       "when": 1791825059136,
       "tag": "0001_device_kinds",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791842753734,
+      "tag": "0002_pump_capability",
+      "breakpoints": true
     }
   ]
 }
