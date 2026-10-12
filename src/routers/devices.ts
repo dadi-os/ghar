@@ -122,11 +122,18 @@ export async function registerDevices(app: FastifyInstance): Promise<void> {
     const config = await deviceCapabilityConfig(app.db, id, body.capability);
     const spec = commandSpec(body.capability, body.command);
     const params = parse(spec.params, body.params ?? {});
-    await app.controller.command(
-      id,
-      { capability: body.capability, command: body.command, params, config },
-      issuerFromBody(body),
-    );
+    try {
+      await app.controller.command(
+        id,
+        { capability: body.capability, command: body.command, params, config },
+        issuerFromBody(body),
+      );
+    } catch (err) {
+      if (err instanceof DeviceTimeoutError) {
+        throw new GharError(504, "device_unreachable", err.message);
+      }
+      throw err;
+    }
 
     return { ok: true };
   });

@@ -267,7 +267,7 @@ test("invalid capability or cause values are rejected by the enum", async () => 
     () =>
       sql`
         INSERT INTO device_capabilities (device_id, capability, config)
-        VALUES (${deviceId}::uuid, 'camera', '{}'::jsonb)
+        VALUES (${deviceId}::uuid, 'switchable', '{}'::jsonb)
       `,
     (err: unknown) => {
       assert.match(errorText(err), /invalid input value for enum|device_capability/i);
