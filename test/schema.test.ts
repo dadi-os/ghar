@@ -46,8 +46,6 @@ async function insertDevice(
       nodeId: args.nodeId,
       endpoint: args.endpoint,
       name: args.name,
-      kind: "light",
-      deviceTypes: [0x0100],
       roomId: args.roomId,
     })
     .returning({ id: devices.id });
@@ -128,7 +126,7 @@ test("deleting a device cascades to capabilities, tags, and event logs", async (
 
   await db.insert(deviceCapabilities).values({
     deviceId,
-    capability: "on_off",
+    capability: "switchable",
     config: {},
   });
 
@@ -165,7 +163,7 @@ test("a device cannot hold the same capability twice", async () => {
 
   await db.insert(deviceCapabilities).values({
     deviceId,
-    capability: "level",
+    capability: "dimmable",
     config: { min: 1, max: 254 },
   });
 
@@ -173,7 +171,7 @@ test("a device cannot hold the same capability twice", async () => {
     () =>
       db.insert(deviceCapabilities).values({
         deviceId,
-        capability: "level",
+        capability: "dimmable",
         config: {},
       }),
     (err: unknown) => {
@@ -267,7 +265,7 @@ test("invalid capability or cause values are rejected by the enum", async () => 
     () =>
       sql`
         INSERT INTO device_capabilities (device_id, capability, config)
-        VALUES (${deviceId}::uuid, 'switchable', '{}'::jsonb)
+        VALUES (${deviceId}::uuid, 'camera', '{}'::jsonb)
       `,
     (err: unknown) => {
       assert.match(errorText(err), /invalid input value for enum|device_capability/i);

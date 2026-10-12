@@ -2,7 +2,6 @@ import { loadConfig, resetConfigCache, type Config } from "../src/config.js";
 import { createDb, type Db, type Sql } from "../src/db/client.js";
 import { deviceCapabilities, devices, rooms } from "../src/db/schema.js";
 import { eq } from "drizzle-orm";
-import type { DeviceKind, GharCapability } from "../src/matter/capabilities.js";
 
 /** Test config against real Postgres; Matter path is unused with FakeController. */
 export function testConfig(): Config {
@@ -43,8 +42,7 @@ export async function insertTestDevice(
     nodeId?: bigint;
     endpoint?: number;
     roomId: string;
-    kind?: DeviceKind;
-    capabilities?: Array<{ capability: GharCapability; config?: Record<string, unknown> }>;
+    capabilities?: Array<{ capability: "switchable" | "dimmable" | "colorable" | "sensor"; config?: Record<string, unknown> }>;
     online?: boolean;
   },
 ): Promise<string> {
@@ -54,8 +52,6 @@ export async function insertTestDevice(
       nodeId: args.nodeId ?? BigInt(Math.floor(Math.random() * 1_000_000)),
       endpoint: args.endpoint ?? 1,
       name: args.name,
-      kind: args.kind ?? "light",
-      deviceTypes: [],
       roomId: args.roomId,
       online: args.online ?? true,
       vendorName: "TestVendor",
@@ -66,7 +62,7 @@ export async function insertTestDevice(
   if (!row) {
     throw new Error("device insert failed");
   }
-  const caps = args.capabilities ?? [{ capability: "on_off" as const, config: {} }];
+  const caps = args.capabilities ?? [{ capability: "switchable" as const, config: {} }];
   if (caps.length > 0) {
     await db.insert(deviceCapabilities).values(
       caps.map((c) => ({

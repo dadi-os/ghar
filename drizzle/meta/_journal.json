@@ -8,13 +8,6 @@
       "when": 1788922754365,
       "tag": "0000_loose_magma",
       "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1791825059136,
-      "tag": "0001_device_kinds",
-      "breakpoints": true
     }
   ]
 }

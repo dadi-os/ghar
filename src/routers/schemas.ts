@@ -2,7 +2,6 @@
 
 import { z, type ZodError, type ZodType } from "zod";
 import { GharError } from "../errors.js";
-import { CAPABILITIES, DEVICE_KINDS } from "../matter/capabilities.js";
 
 /** Parse with zod; map failures to `422 invalid_request`. */
 export function parse<T>(schema: ZodType<T>, data: unknown): T {
@@ -27,14 +26,21 @@ export const idParam = z.object({ id: z.string().uuid() }).strict();
 
 export const jobIdParam = z.object({ jobId: z.string().uuid() }).strict();
 
-const capability = z.enum(CAPABILITIES);
+const capability = z.enum([
+  "switchable",
+  "dimmable",
+  "colorable",
+  "sensor",
+  "lockable",
+  "media",
+  "thermostat",
+]);
 
 export const devicesQuery = z
   .object({
     room: z.string().min(1).optional(),
     tag: z.string().min(1).optional(),
     capability: capability.optional(),
-    kind: z.enum(DEVICE_KINDS).optional(),
   })
   .strict();
 
@@ -49,8 +55,7 @@ export const patchDeviceBody = z
 export const commandBody = z
   .object({
     capability: capability,
-    command: z.string().min(1),
-    params: z.record(z.unknown()).optional(),
+    params: z.record(z.unknown()),
     cause: z.enum(["agent", "user"]).optional(),
     cause_ref: z.string().min(1).optional(),
   })

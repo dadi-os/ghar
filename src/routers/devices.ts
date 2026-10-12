@@ -4,10 +4,10 @@ import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { deviceTags, devices, rooms, tags } from "../db/schema.js";
 import { GharError } from "../errors.js";
-import { commandSpec, type CommandIssuer } from "../matter/commands/index.js";
+import type { CommandIssuer } from "../matter/commands.js";
 import { DeviceTimeoutError } from "../matter/timeout.js";
 import {
-  deviceCapabilityConfig,
+  deviceCapabilitySet,
   getDevice,
   isUniqueViolation,
   listDevices,
@@ -119,16 +119,70 @@ export async function registerDevices(app: FastifyInstance): Promise<void> {
     const body = parse(commandBody, request.body);
     await getDevice(app.db, app.controller, id);
 
-    const config = await deviceCapabilityConfig(app.db, id, body.capability);
-    const spec = commandSpec(body.capability, body.command);
-    const params = parse(spec.params, body.params ?? {});
-    try {
-      await app.controller.command(
-        id,
-        { capability: body.capability, command: body.command, params, config },
-        issuerFromBody(body),
+    const caps = await deviceCapabilitySet(app.db, id);
+    if (!caps.has(body.capability)) {
+      throw new GharError(
+        422,
+        "capability_unsupported",
+        `device does not support capability ${body.capability}`,
       );
+    }
+
+    const issuer = issuerFromBody(body);
+
+    try {
+      switch (body.capability) {
+        case "switchable": {
+          const state = body.params.state;
+          if (state !== "on" && state !== "off" && state !== "toggle") {
+            throw new GharError(422, "invalid_request", "params.state must be on, off, or toggle");
+          }
+          let on: boolean;
+          if (state === "toggle") {
+            const current = app.controller.getState(id)?.get("on")?.value;
+            on = current !== true;
+          } else {
+            on = state === "on";
+          }
+          await app.controller.setOn(id, on, issuer);
+          break;
+        }
+        case "dimmable": {
+          const level = body.params.level;
+          if (typeof level !== "number" || level < 0 || level > 100) {
+            throw new GharError(422, "invalid_request", "params.level must be a number from 0 to 100");
+          }
+          await app.controller.setBrightness(id, level, issuer);
+          break;
+        }
+        case "colorable": {
+          const colorTemp = body.params.color_temp;
+          const hue = body.params.hue;
+          const saturation = body.params.saturation;
+          if (typeof colorTemp === "number") {
+            await app.controller.setColor(id, { colorTempMireds: colorTemp }, issuer);
+          } else if (typeof hue === "number" && typeof saturation === "number") {
+            await app.controller.setColor(id, { hue, saturation }, issuer);
+          } else {
+            throw new GharError(
+              422,
+              "invalid_request",
+              "params must include color_temp or both hue and saturation",
+            );
+          }
+          break;
+        }
+        default:
+          throw new GharError(
+            422,
+            "capability_unsupported",
+            `command dispatch for ${body.capability} is not implemented`,
+          );
+      }
     } catch (err) {
+      if (err instanceof GharError) {
+        throw err;
+      }
       if (err instanceof DeviceTimeoutError) {
         throw new GharError(504, "device_unreachable", err.message);
       }

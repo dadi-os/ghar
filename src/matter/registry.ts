@@ -4,19 +4,13 @@ import { and, eq } from "drizzle-orm";
 import type { ClientNode, Endpoint } from "@matter/main";
 import { BasicInformationClient } from "@matter/main/behaviors/basic-information";
 import { BridgedDeviceBasicInformationClient } from "@matter/main/behaviors/bridged-device-basic-information";
+import { ColorControlClient } from "@matter/main/behaviors/color-control";
 import { DescriptorClient } from "@matter/main/behaviors/descriptor";
 import { FixedLabelClient } from "@matter/main/behaviors/fixed-label";
 import { UserLabelClient } from "@matter/main/behaviors/user-label";
 import type { Db } from "../db/client.js";
 import { deviceCapabilities, devices, rooms } from "../db/schema.js";
-import {
-  Behavior,
-  deriveCapabilities,
-  deriveKind,
-  type CapabilityRecord,
-  type DeviceKind,
-  type EndpointDescriptor,
-} from "./capabilities.js";
+import { deriveCapabilities, type CapabilityRecord } from "./capabilities.js";
 import type { Logger } from "../logging.js";
 import { withTimeout } from "./timeout.js";
 
@@ -35,7 +29,6 @@ export type RegisteredDevice = {
   id: string;
   nodeId: bigint;
   endpoint: number;
-  kind: DeviceKind;
   capabilities: CapabilityRecord[];
 };
 
@@ -48,35 +41,17 @@ async function unassignedRoomId(db: Db): Promise<string> {
   return row.id;
 }
 
-/**
- * What an endpoint exposes: its device types, client behaviors, their features and current
- * values. A Power Source on the node's root counts for every endpoint that has none of its own.
- */
-function describeEndpoint(node: ClientNode, endpoint: Endpoint): EndpointDescriptor {
-  const deviceTypes = (endpoint.maybeStateOf(DescriptorClient)?.deviceTypeList ?? []).map((entry) =>
-    Number(entry.deviceType),
-  );
-  const behaviors = Object.keys(endpoint.behaviors.supported);
-  const features: Record<string, Readonly<Record<string, boolean>>> = {};
-  const state: Record<string, Readonly<Record<string, unknown>>> = {};
-  const read = (source: Endpoint, behavior: string) => {
-    const behaviorFeatures = source.maybeFeaturesOf(behavior);
-    if (behaviorFeatures) {
-      features[behavior] = behaviorFeatures;
-    }
-    const behaviorState = source.maybeStateOf(behavior);
-    if (behaviorState) {
-      state[behavior] = behaviorState;
-    }
+function colorFeaturesFromEndpoint(endpoint: {
+  maybeFeaturesOf: (t: typeof ColorControlClient) => { hueSaturation?: boolean; colorTemperature?: boolean } | undefined;
+}): { hueSaturation?: boolean; colorTemperature?: boolean } | undefined {
+  const features = endpoint.maybeFeaturesOf(ColorControlClient);
+  if (!features) {
+    return undefined;
+  }
+  return {
+    hueSaturation: features.hueSaturation === true,
+    colorTemperature: features.colorTemperature === true,
   };
-  for (const behavior of behaviors) {
-    read(endpoint, behavior);
-  }
-  if (!behaviors.includes(Behavior.PowerSource) && node.maybeStateOf(Behavior.PowerSource) !== undefined) {
-    behaviors.push(Behavior.PowerSource);
-    read(node, Behavior.PowerSource);
-  }
-  return { deviceTypes, behaviors, features, state };
 }
 
 /**
@@ -304,9 +279,8 @@ async function readEndpointLabel(
 }
 
 /**
- * Upsert one Postgres row per controllable endpoint on a commissioned peer, with its kind,
- * device types and capabilities. Endpoints with no Ghar capabilities are skipped, except a
- * bridge's aggregator, which is listed so its bridged devices have a home.
+ * Upsert one Postgres row per controllable endpoint on a commissioned peer.
+ * Endpoints with no Ghar capabilities are skipped.
  *
  * `placeRoomId`, when set, is the room for new rows and for endpoints already
  * in the registry. Reconnect sync omits it so an existing room stays put.
@@ -333,13 +307,8 @@ export async function syncNodeToRegistry(
 
   type PendingEndpoint = {
     endpointNumber: number;
-    kind: DeviceKind;
-    deviceTypes: number[];
     capabilities: CapabilityRecord[];
     endpointLabel: string | null;
-    vendorName: string | null;
-    productName: string | null;
-    bridgeName: string | null;
   };
   const pending: PendingEndpoint[] = [];
 
@@ -348,25 +317,20 @@ export async function syncNodeToRegistry(
     if (endpointNumber === undefined || endpointNumber === 0) {
       continue;
     }
-    const descriptor = describeEndpoint(node, endpoint);
-    const kind = deriveKind(descriptor.deviceTypes);
-    const capabilities = deriveCapabilities(descriptor, kind);
-    if (capabilities.length === 0 && kind !== "bridge") {
+    const descriptor = endpoint.maybeStateOf(DescriptorClient);
+    const serverList = (descriptor?.serverList ?? []).map((id) => Number(id));
+    const colorFeatures = colorFeaturesFromEndpoint(endpoint);
+    const capabilities = deriveCapabilities({
+      endpoint: endpointNumber,
+      serverList,
+      ...(colorFeatures ? { colorFeatures } : {}),
+    });
+    if (capabilities.length === 0) {
       continue;
     }
 
-    const bridged = endpoint.maybeStateOf(BridgedDeviceBasicInformationClient);
     const endpointLabel = await readEndpointLabel(endpoint, productName, log, endpointNumber);
-    pending.push({
-      endpointNumber,
-      kind,
-      deviceTypes: [...descriptor.deviceTypes],
-      capabilities,
-      endpointLabel,
-      vendorName: bridged ? distinctDeviceLabel(bridged.vendorName, null) : vendorName,
-      productName: bridged ? distinctDeviceLabel(bridged.productName, null) : productName,
-      bridgeName: bridged ? productName : null,
-    });
+    pending.push({ endpointNumber, capabilities, endpointLabel });
   }
 
   const sharing = new Map<string, number>();
@@ -376,7 +340,7 @@ export async function syncNodeToRegistry(
   }
 
   for (const item of pending) {
-    const { endpointNumber, kind, deviceTypes, capabilities, bridgeName } = item;
+    const { endpointNumber, capabilities } = item;
     const base = item.endpointLabel ?? nodeLabel ?? (productName?.trim() || DEFAULT_DEVICE_NAME);
     const peers = sharing.get(base);
     if (peers === undefined) {
@@ -402,11 +366,8 @@ export async function syncNodeToRegistry(
       await db
         .update(devices)
         .set({
-          kind,
-          deviceTypes,
-          bridgeName,
-          vendorName: item.vendorName,
-          productName: item.productName,
+          vendorName,
+          productName,
           online: true,
           lastSeenAt: new Date(),
           ...(stock ? { name } : {}),
@@ -421,14 +382,11 @@ export async function syncNodeToRegistry(
           nodeId,
           endpoint: endpointNumber,
           name,
-          kind,
-          deviceTypes,
-          bridgeName,
           roomId,
           online: true,
           lastSeenAt: new Date(),
-          vendorName: item.vendorName,
-          productName: item.productName,
+          vendorName,
+          productName,
         })
         .returning({ id: devices.id });
       const row = inserted[0];
@@ -448,13 +406,11 @@ export async function syncNodeToRegistry(
       );
     }
 
-    registered.push({ id: deviceId, nodeId, endpoint: endpointNumber, kind, capabilities });
+    registered.push({ id: deviceId, nodeId, endpoint: endpointNumber, capabilities });
     log.info("device registered", {
       device_id: deviceId,
       node_id: nodeId.toString(),
       endpoint: endpointNumber,
-      kind,
-      device_types: deviceTypes,
       capabilities: capabilities.map((c) => c.capability),
       vendor: vendorName,
       product: productName,

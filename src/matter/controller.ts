@@ -24,12 +24,13 @@ import { PendingCauseTracker } from "./cause.js";
 import { CommissioningService, type CommissionJob } from "./commissioning.js";
 import {
   identifyDevice,
-  runCommand,
+  setBrightness,
+  setColor,
+  setOnOff,
   writeDeviceLabel,
+  type ColorCommand,
   type CommandIssuer,
-  type DeviceCommand,
-} from "./commands/index.js";
-import type { DeviceKind } from "./capabilities.js";
+} from "./commands.js";
 import type { RegisteredDevice } from "./registry.js";
 import { syncNodeToRegistry } from "./registry.js";
 import { RadioHub, type RadioCommand, type RadioEvent } from "./radio.js";
@@ -178,10 +179,28 @@ export class FabricController implements MatterController {
     return this.cache.snapshot();
   }
 
-  async command(deviceId: string, cmd: DeviceCommand, issuer: CommandIssuer): Promise<void> {
+  async setOn(deviceId: string, on: boolean, issuer: CommandIssuer): Promise<void> {
     try {
-      const target = await this.#resolveDevice(deviceId);
-      await runCommand({ ...target, deviceId }, cmd, this.causes, issuer);
+      const { node, endpoint } = await this.#resolveDevice(deviceId);
+      await setOnOff(node, endpoint, deviceId, on, this.causes, issuer);
+    } catch (err) {
+      this.#mapCommandError(err);
+    }
+  }
+
+  async setBrightness(deviceId: string, percent: number, issuer: CommandIssuer): Promise<void> {
+    try {
+      const { node, endpoint } = await this.#resolveDevice(deviceId);
+      await setBrightness(node, endpoint, deviceId, percent, this.causes, issuer);
+    } catch (err) {
+      this.#mapCommandError(err);
+    }
+  }
+
+  async setColor(deviceId: string, color: ColorCommand, issuer: CommandIssuer): Promise<void> {
+    try {
+      const { node, endpoint } = await this.#resolveDevice(deviceId);
+      await setColor(node, endpoint, deviceId, color, this.causes, issuer);
     } catch (err) {
       this.#mapCommandError(err);
     }
@@ -351,7 +370,7 @@ export class FabricController implements MatterController {
     this.#bound.set(key, { node, devices: registered, dispose });
   }
 
-  async #resolveDevice(deviceId: string): Promise<{ node: ClientNode; endpoint: number; kind: DeviceKind }> {
+  async #resolveDevice(deviceId: string): Promise<{ node: ClientNode; endpoint: number }> {
     const rows = await this.#db.select().from(devices).where(eq(devices.id, deviceId));
     const row = rows[0];
     if (!row) {
@@ -362,6 +381,6 @@ export class FabricController implements MatterController {
     if (!bound) {
       throw new Error(`no live Matter session for node ${key}`);
     }
-    return { node: bound.node, endpoint: row.endpoint, kind: row.kind };
+    return { node: bound.node, endpoint: row.endpoint };
   }
 }

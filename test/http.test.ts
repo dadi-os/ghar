@@ -40,7 +40,7 @@ async function reset(): Promise<void> {
   fake.commissionMode = "succeed";
 }
 
-test("GET /devices filters by room, tag, capability, kind; unknown filters are empty", async () => {
+test("GET /devices filters by room, tag, capability; unknown filters are empty", async () => {
   await reset();
   const unassigned = await unassignedRoomId(handle.db);
   const [living] = await handle.db.insert(rooms).values({ name: "living" }).returning();
@@ -50,16 +50,15 @@ test("GET /devices filters by room, tag, capability, kind; unknown filters are e
     name: "bulb",
     roomId: living.id,
     capabilities: [
-      { capability: "on_off" },
-      { capability: "level", config: { min: 0, max: 100 } },
-      { capability: "color", config: { modes: ["hue_sat"] } },
+      { capability: "switchable" },
+      { capability: "dimmable", config: { min: 0, max: 100 } },
+      { capability: "colorable", config: { modes: ["hue_sat"] } },
     ],
   });
   const plug = await insertTestDevice(handle.db, {
     name: "plug",
     roomId: unassigned,
-    kind: "plug",
-    capabilities: [{ capability: "on_off" }],
+    capabilities: [{ capability: "switchable" }],
   });
   fake.seedState(bulb, "on", true);
   fake.seedState(bulb, "brightness", 40);
@@ -79,13 +78,13 @@ test("GET /devices filters by room, tag, capability, kind; unknown filters are e
   const byTag = await app.inject({ method: "GET", url: "/devices?tag=ambient" });
   assert.equal(byTag.json().devices.length, 1);
 
-  const byCap = await app.inject({ method: "GET", url: "/devices?capability=color" });
+  const byCap = await app.inject({ method: "GET", url: "/devices?capability=colorable" });
   assert.equal(byCap.json().devices.length, 1);
   assert.equal(byCap.json().devices[0].id, bulb);
 
   const combo = await app.inject({
     method: "GET",
-    url: "/devices?room=living&tag=ambient&capability=level",
+    url: "/devices?room=living&tag=ambient&capability=dimmable",
   });
   assert.equal(combo.json().devices.length, 1);
 
@@ -95,14 +94,9 @@ test("GET /devices filters by room, tag, capability, kind; unknown filters are e
   const unknownTag = await app.inject({ method: "GET", url: "/devices?tag=nope" });
   assert.equal(unknownTag.json().devices.length, 0);
 
-  const byKind = await app.inject({ method: "GET", url: "/devices?kind=plug" });
-  assert.equal(byKind.json().devices.length, 1);
-  assert.equal(byKind.json().devices[0].id, plug);
-  assert.equal(byKind.json().devices[0].kind, "plug");
-  assert.equal(byKind.json().devices[0].bridge_name, null);
-
   const all = await app.inject({ method: "GET", url: "/devices" });
   assert.equal(all.json().devices.length, 2);
+  void plug;
 });
 
 test("command rejects unsupported capability and maps timeout to device_unreachable", async () => {
@@ -111,39 +105,22 @@ test("command rejects unsupported capability and maps timeout to device_unreacha
   const id = await insertTestDevice(handle.db, {
     name: "switch",
     roomId,
-    capabilities: [{ capability: "on_off" }],
+    capabilities: [{ capability: "switchable" }],
   });
 
   const unsupported = await app.inject({
     method: "POST",
     url: `/devices/${id}/command`,
-    payload: { capability: "level", command: "move_to", params: { level: 40 } },
+    payload: { capability: "dimmable", params: { level: 40 } },
   });
   assert.equal(unsupported.statusCode, 422);
   assert.equal(unsupported.json().error.type, "capability_unsupported");
-
-  const unknownCommand = await app.inject({
-    method: "POST",
-    url: `/devices/${id}/command`,
-    payload: { capability: "on_off", command: "flip" },
-  });
-  assert.equal(unknownCommand.statusCode, 422);
-  assert.equal(unknownCommand.json().error.type, "invalid_request");
-
-  const badParams = await app.inject({
-    method: "POST",
-    url: `/devices/${id}/command`,
-    payload: { capability: "on_off", command: "on", params: { state: "on" } },
-  });
-  assert.equal(badParams.statusCode, 422);
-  assert.equal(badParams.json().error.type, "invalid_request");
-  assert.equal(fake.commands.length, 0);
 
   fake.unreachable = true;
   const timeout = await app.inject({
     method: "POST",
     url: `/devices/${id}/command`,
-    payload: { capability: "on_off", command: "on", cause: "agent", cause_ref: "a1" },
+    payload: { capability: "switchable", params: { state: "on" }, cause: "agent", cause_ref: "a1" },
   });
   assert.equal(timeout.statusCode, 504);
   assert.equal(timeout.json().error.type, "device_unreachable");
@@ -156,8 +133,8 @@ test("command attribution writes cause and cause_ref on the event row", async ()
     name: "bulb",
     roomId,
     capabilities: [
-      { capability: "on_off" },
-      { capability: "level", config: { min: 0, max: 100 } },
+      { capability: "switchable" },
+      { capability: "dimmable", config: { min: 0, max: 100 } },
     ],
   });
   fake.seedState(id, "brightness", 10);
@@ -166,8 +143,7 @@ test("command attribution writes cause and cause_ref on the event row", async ()
     method: "POST",
     url: `/devices/${id}/command`,
     payload: {
-      capability: "level",
-      command: "move_to",
+      capability: "dimmable",
       params: { level: 40 },
       cause: "agent",
       cause_ref: "agent-42",
@@ -212,12 +188,12 @@ test("GET /events filters and since-as-id resumes without duplicates", async () 
   const a = await insertTestDevice(handle.db, {
     name: "a",
     roomId: den.id,
-    capabilities: [{ capability: "on_off" }],
+    capabilities: [{ capability: "switchable" }],
   });
   const b = await insertTestDevice(handle.db, {
     name: "b",
     roomId,
-    capabilities: [{ capability: "on_off" }],
+    capabilities: [{ capability: "switchable" }],
   });
 
   await handle.db.insert(eventLogs).values([

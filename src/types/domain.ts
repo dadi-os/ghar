@@ -1,6 +1,6 @@
 /** Agent/widget-facing record shapes (snake_case). */
 
-import type { DeviceKind, GharCapability } from "../matter/capabilities.js";
+import type { GharCapability } from "../matter/capabilities.js";
 import type { EventCause } from "../matter/cause.js";
 import type { CommissionStatus } from "../matter/commissioning.js";
 
@@ -19,12 +19,6 @@ export type DeviceRecord = {
   node_id: string;
   endpoint: number;
   name: string;
-  /** What the device is, from its Matter device type. */
-  kind: DeviceKind;
-  /** Matter device type ids from the endpoint's Descriptor. */
-  device_types: number[];
-  /** The bridge's product name when this device sits behind a bridge. */
-  bridge_name: string | null;
   room: { id: string; name: string };
   tags: Array<{ id: string; name: string }>;
   capabilities: CapabilityRecord[];

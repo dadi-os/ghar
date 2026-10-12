@@ -9,7 +9,7 @@ import { GharError } from "../src/errors.js";
 import type { MatterController, CommissionRequest } from "../src/matter/controller-api.js";
 import { PendingCauseTracker } from "../src/matter/cause.js";
 import type { CommissionJob } from "../src/matter/commissioning.js";
-import type { CommandIssuer, DeviceCommand } from "../src/matter/commands/index.js";
+import type { ColorCommand, CommandIssuer } from "../src/matter/commands.js";
 import { applyObservation } from "../src/matter/events.js";
 import { StateCache } from "../src/matter/state-cache.js";
 import { RadioHub, type RadioCommand, type RadioEvent } from "../src/matter/radio.js";
@@ -43,29 +43,14 @@ export class FakeController implements MatterController {
     return this.cache.snapshot();
   }
 
-  /**
-   * Record the command and report the state it would change: on/off, level and color
-   * temperature move their keys; other commands are only recorded.
-   */
-  async command(deviceId: string, cmd: DeviceCommand, issuer: CommandIssuer): Promise<void> {
-    this.commands.push({ kind: `${cmd.capability}.${cmd.command}`, deviceId, args: cmd.params, issuer });
-    const params = cmd.params as Record<string, unknown>;
-    switch (`${cmd.capability}.${cmd.command}`) {
-      case "on_off.on":
-        return this.#dispatch(deviceId, "on", true, issuer);
-      case "on_off.off":
-        return this.#dispatch(deviceId, "on", false, issuer);
-      case "on_off.toggle":
-        return this.#dispatch(deviceId, "on", this.cache.get(deviceId, "on")?.value !== true, issuer);
-      case "level.move_to":
-        return this.#dispatch(deviceId, "brightness", params.level, issuer);
-      case "color.temperature":
-        return this.#dispatch(deviceId, "color_temp", params.mireds, issuer);
-      default:
-        if (this.unreachable) {
-          throw new DeviceTimeoutError(`command(${deviceId})`, 5000);
-        }
-    }
+  async setOn(deviceId: string, on: boolean, issuer: CommandIssuer): Promise<void> {
+    this.commands.push({ kind: "on", deviceId, args: { on }, issuer });
+    await this.#dispatch(deviceId, "on", on, issuer);
+  }
+
+  async setBrightness(deviceId: string, percent: number, issuer: CommandIssuer): Promise<void> {
+    this.commands.push({ kind: "brightness", deviceId, args: { percent }, issuer });
+    await this.#dispatch(deviceId, "brightness", percent, issuer);
   }
 
   async identify(deviceId: string): Promise<void> {
@@ -79,6 +64,16 @@ export class FakeController implements MatterController {
       args: { name },
       issuer: { cause: "user" },
     });
+  }
+
+  async setColor(deviceId: string, color: ColorCommand, issuer: CommandIssuer): Promise<void> {
+    this.commands.push({ kind: "color", deviceId, args: color, issuer });
+    if ("colorTempMireds" in color) {
+      await this.#dispatch(deviceId, "color_temp", color.colorTempMireds, issuer);
+    } else {
+      await this.#dispatch(deviceId, "hue", color.hue, issuer);
+      await this.#dispatch(deviceId, "saturation", color.saturation, issuer);
+    }
   }
 
   async removeDevice(deviceId: string): Promise<void> {
@@ -197,8 +192,6 @@ export class FakeController implements MatterController {
         nodeId,
         endpoint: 1,
         name: `commissioned-${job.id.slice(0, 8)}`,
-        kind: "light",
-        deviceTypes: [0x0101],
         roomId: room.id,
         online: true,
         vendorName: "FakeVendor",
@@ -213,8 +206,8 @@ export class FakeController implements MatterController {
       return;
     }
     await this.#db.insert(deviceCapabilities).values([
-      { deviceId: device.id, capability: "on_off", config: {} },
-      { deviceId: device.id, capability: "level", config: { min: 0, max: 100 } },
+      { deviceId: device.id, capability: "switchable", config: {} },
+      { deviceId: device.id, capability: "dimmable", config: { min: 0, max: 100 } },
     ]);
     this.seedState(device.id, "on", false);
     this.seedState(device.id, "brightness", 100);
