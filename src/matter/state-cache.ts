@@ -12,6 +12,15 @@ export type DeviceStateSnapshot = {
 /** Mutable in-memory map from device id to current attribute values. */
 export class StateCache {
   readonly #devices = new Map<string, DeviceStateSnapshot>();
+  readonly #listeners = new Set<() => void>();
+
+  /** Call `listener` whenever an attribute takes a new value; returns the unsubscribe. */
+  onChange(listener: () => void): () => void {
+    this.#listeners.add(listener);
+    return () => {
+      this.#listeners.delete(listener);
+    };
+  }
 
   get(deviceId: string, attributeKey: string): CachedAttribute | undefined {
     return this.#devices.get(deviceId)?.attributes.get(attributeKey);
@@ -47,6 +56,11 @@ export class StateCache {
       value,
       changedAt: touch || !prev ? at : prev.changedAt,
     });
+    if (!prev || !Object.is(prev.value, value)) {
+      for (const listener of this.#listeners) {
+        listener();
+      }
+    }
     return prev;
   }
 

@@ -1,6 +1,7 @@
 /** Mount domain HTTP routes at the root. */
 
 import type { FastifyInstance } from "fastify";
+import { registerChanges } from "./changes.js";
 import { registerCommission } from "./commission.js";
 import { registerDevices } from "./devices.js";
 import { registerEvents } from "./events.js";
@@ -10,6 +11,7 @@ import { registerState } from "./state.js";
 import { registerTags } from "./tags.js";
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
+  await registerChanges(app);
   await registerDevices(app);
   await registerRooms(app);
   await registerTags(app);

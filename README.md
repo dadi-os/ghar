@@ -80,6 +80,7 @@ The HTTP server listens before the Matter controller finishes starting. Until th
 | `GET` | `/tags` | distinct tag names |
 | `GET` | `/state` | live attribute cache snapshot |
 | `GET` | `/events` | `event_logs` query (`since`, `until`, filters, page) |
+| `GET` | `/changes` | SSE; emits `{ type: "changed", at }` when a device attribute takes a new value and after every successful non-GET request except `/radio/*`. No replay. |
 | `POST` | `/commission` | `202` + `job_id`. Optional `room_id`. `radio` is `network` (default) or `nearby`. Nearby requires `wifi` and an attached device radio, otherwise `422 radio_unavailable`. Wi-Fi credentials are not stored. |
 | `GET` | `/commission/:jobId` | poll job (failed jobs still `200` with reason in payload) |
 | `POST` | `/radio/attach` | `201` + `session_id`. One device Bluetooth radio at a time (`409` if taken) |
