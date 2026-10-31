@@ -25,6 +25,8 @@ export type Config = {
     databaseUrl: string;
     /** Persistent Matter fabric storage. Required when starting the real controller. */
     matterStoragePath: string;
+    /** Dwar base URL; the control loop calls its `/chat/complete`. */
+    dwarUrl: string;
     host: string;
     port: number;
     logLevel: typeof LOG_LEVEL;
@@ -74,11 +76,16 @@ export function loadConfig(): Config {
   if (!matterStoragePath) {
     throw new Error("MATTER_STORAGE_PATH is required");
   }
+  const dwarUrl = process.env.DWAR_URL;
+  if (!dwarUrl) {
+    throw new Error("DWAR_URL is required");
+  }
   cached = {
     serviceRoot,
     env: {
       databaseUrl,
       matterStoragePath,
+      dwarUrl,
       host: listenHost(),
       port: listenPort(),
       logLevel: LOG_LEVEL,

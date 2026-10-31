@@ -1,11 +1,12 @@
 # Ghar
 
-Home automation for dadi. Owns the Matter fabric, device registry, rooms/tags, live state, and command/event APIs. Agents reach Ghar through Hath tools. Unauthenticated; private mesh only.
+Home automation for dadi. Owns the Matter fabric, device registry, rooms/tags, live state, and command/event APIs. Agents reach Ghar through Hath's `get_device` (reads) and `control_device` (a plain-language request that Ghar's own control loop turns into commands). Unauthenticated; private mesh only.
 
 ## Dependencies
 
 - Postgres (`DATABASE_URL`)
 - Matter fabric storage (`MATTER_STORAGE_PATH`) — persists credentials and commissioned peers
+- Dwar (`DWAR_URL`) — the control loop's model calls, `POST /chat/complete`
 - Nas for mesh DNS, compose/prod networking, host-network Matter on the appliance, and the shared logging contract
 
 ## Layout
@@ -19,8 +20,10 @@ ghar/
       capabilities.ts  device kind + capabilities from an endpoint's Descriptor and features
       attributes.ts    attributes cached and cluster events logged, with their Ghar units
       commands/        command table by capability (lighting, covers, climate, appliances, media)
+    control/      plain-language control: Dwar client, the model loop, its tools, run registry
     routers/      HTTP routes + schemas
     types/        domain types
+  prompts/      control.md, the control loop's system prompt
   test/
   drizzle/
   config.toml
@@ -32,7 +35,7 @@ ghar/
 
 Default bind is `0.0.0.0:8080` in `src/constants.ts`. Prod host-networked Ghar sets `HOST=127.0.0.1` and `PORT=8084` so the listener (not a bridge network) is the boundary around the fabric.
 
-`DATABASE_URL` and `MATTER_STORAGE_PATH` are required at process startup (no empty defaults). Migrate oneshots only need `DATABASE_URL` (`loadDatabaseConfig`). Nas injects both in compose and on the appliance. There is no Ghar `.env` — Postgres and Matter storage are not Preferences-editable; `.env.example` documents both.
+`DATABASE_URL`, `MATTER_STORAGE_PATH` and `DWAR_URL` are required at process startup (no empty defaults). Migrate oneshots only need `DATABASE_URL` (`loadDatabaseConfig`). Nas injects both in compose and on the appliance. There is no Ghar `.env` — Postgres and Matter storage are not Preferences-editable; `.env.example` documents both.
 
 ## Local run
 
@@ -56,7 +59,7 @@ Source is bind-mounted; edits restart in place. Matter discovery does not work o
 
 Logs follow the nas JSON contract (`service=ghar`, request summary with `request_id` / `duration_ms`, errors with `code`). Default Fastify access logging is off. Process-level Matter/boot lines use the same JSON shape via `createLogger()`.
 
-HTTP errors: `{ "error": { "type": "<code>", "message": "..." } }`. Shared codes include `invalid_request`, `not_found`, `conflict`, `internal_error`. Domain codes include `commissioning_failed`, `capability_unsupported`, `command_rejected` (the device refused a command it received), `device_unreachable`, `radio_unavailable`, `matter_unavailable`, `peer_delete_failed`. See nas README for the shared catalog.
+HTTP errors: `{ "error": { "type": "<code>", "message": "..." } }`. Shared codes include `invalid_request`, `not_found`, `conflict`, `internal_error`. Domain codes include `commissioning_failed`, `capability_unsupported`, `command_rejected` (the device refused a command it received), `device_unreachable`, `radio_unavailable`, `matter_unavailable`, `peer_delete_failed`, `control_failed` (a control run the model could not finish), `dwar_failed`. See nas README for the shared catalog.
 
 ## Matter / fabric
 
@@ -73,6 +76,8 @@ The HTTP server listens before the Matter controller finishes starting. Until th
 | `DELETE` | `/devices/:id` | remove registry row / peer; `500 peer_delete_failed` when the peer cannot be removed from the fabric |
 | `POST` | `/devices/:id/command` | `capability`, `command`, `params`; optional `cause` / `cause_ref` (see Devices) |
 | `POST` | `/devices/:id/identify` | blink the device for a few seconds |
+| `POST` | `/control` | `request` (plain words), `caller` (agent id), `wait_ms` (0–60000). Runs a Haiku loop on Dwar's `/chat/complete` with `get_devices` and `command_device`, attributed to `caller`, and answers `{ id, status, result? , error? }`: `done` or `failed` if it settled within `wait_ms`, else `running` and the run goes on. |
+| `GET` | `/control/:id` | a run's `status`, `result` or `error`; kept an hour (200 runs), lost on restart (`404`) |
 | `GET` | `/rooms` | list rooms |
 | `POST` | `/rooms` | create room |
 | `PATCH` | `/rooms/:id` | rename (not `unassigned`) |

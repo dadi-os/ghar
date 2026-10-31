@@ -52,13 +52,43 @@ test("loadConfig requires MATTER_STORAGE_PATH", () => {
   }
 });
 
+test("loadConfig requires DWAR_URL", () => {
+  resetConfigCache();
+  const previousDwar = process.env.DWAR_URL;
+  const previousDb = process.env.DATABASE_URL;
+  const previousMatter = process.env.MATTER_STORAGE_PATH;
+  process.env.DATABASE_URL = previousDb ?? "postgres://ghar:ghar@localhost:5432/ghar";
+  process.env.MATTER_STORAGE_PATH = previousMatter ?? "/tmp/ghar-test-matter";
+  delete process.env.DWAR_URL;
+  try {
+    assert.throws(() => loadConfig(), /DWAR_URL is required/);
+  } finally {
+    if (previousDwar !== undefined) {
+      process.env.DWAR_URL = previousDwar;
+    }
+    if (previousDb !== undefined) {
+      process.env.DATABASE_URL = previousDb;
+    } else {
+      delete process.env.DATABASE_URL;
+    }
+    if (previousMatter !== undefined) {
+      process.env.MATTER_STORAGE_PATH = previousMatter;
+    } else {
+      delete process.env.MATTER_STORAGE_PATH;
+    }
+    resetConfigCache();
+  }
+});
+
 test("loadConfig returns required env when set", () => {
   resetConfigCache();
   assert.ok(process.env.DATABASE_URL);
   assert.ok(process.env.MATTER_STORAGE_PATH);
+  process.env.DWAR_URL = process.env.DWAR_URL ?? "http://dwar.test";
   const config = loadConfig();
   assert.equal(config.env.databaseUrl, process.env.DATABASE_URL);
   assert.equal(config.env.matterStoragePath, process.env.MATTER_STORAGE_PATH);
+  assert.equal(config.env.dwarUrl, process.env.DWAR_URL);
 });
 
 test("loadDatabaseConfig requires DATABASE_URL only", () => {

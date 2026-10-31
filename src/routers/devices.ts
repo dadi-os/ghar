@@ -2,9 +2,12 @@
 
 import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
+import type { z } from "zod";
+import type { Db } from "../db/client.js";
 import { deviceTags, devices, rooms, tags } from "../db/schema.js";
 import { GharError } from "../errors.js";
 import { commandSpec, type CommandIssuer } from "../matter/commands/index.js";
+import type { MatterController } from "../matter/controller-api.js";
 import { DeviceTimeoutError } from "../matter/timeout.js";
 import {
   deviceCapabilityConfig,
@@ -33,6 +36,30 @@ function issuerFromBody(body: {
 
 async function deleteOrphanTags(app: FastifyInstance): Promise<void> {
   await app.db.execute(sql`DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM device_tags)`);
+}
+
+/**
+ * issueDeviceCommand sends one capability command to a device and waits for it. A device
+ * that does not answer is a 504 `device_unreachable`; a capability the device lacks is a 422.
+ */
+export async function issueDeviceCommand(
+  deps: { db: Db; controller: MatterController },
+  id: string,
+  body: Pick<z.infer<typeof commandBody>, "capability" | "command" | "params">,
+  issuer: CommandIssuer,
+): Promise<void> {
+  await getDevice(deps.db, deps.controller, id);
+  const config = await deviceCapabilityConfig(deps.db, id, body.capability);
+  const spec = commandSpec(body.capability, body.command);
+  const params = parse(spec.params, body.params ?? {});
+  try {
+    await deps.controller.command(id, { capability: body.capability, command: body.command, params, config }, issuer);
+  } catch (err) {
+    if (err instanceof DeviceTimeoutError) {
+      throw new GharError(504, "device_unreachable", err.message);
+    }
+    throw err;
+  }
 }
 
 export async function registerDevices(app: FastifyInstance): Promise<void> {
@@ -117,24 +144,7 @@ export async function registerDevices(app: FastifyInstance): Promise<void> {
   app.post("/devices/:id/command", async (request) => {
     const { id } = parse(idParam, request.params);
     const body = parse(commandBody, request.body);
-    await getDevice(app.db, app.controller, id);
-
-    const config = await deviceCapabilityConfig(app.db, id, body.capability);
-    const spec = commandSpec(body.capability, body.command);
-    const params = parse(spec.params, body.params ?? {});
-    try {
-      await app.controller.command(
-        id,
-        { capability: body.capability, command: body.command, params, config },
-        issuerFromBody(body),
-      );
-    } catch (err) {
-      if (err instanceof DeviceTimeoutError) {
-        throw new GharError(504, "device_unreachable", err.message);
-      }
-      throw err;
-    }
-
+    await issueDeviceCommand(app, id, body, issuerFromBody(body));
     return { ok: true };
   });
 

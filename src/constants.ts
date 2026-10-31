@@ -20,3 +20,18 @@ export const CONTROLLER_NODE_ID = "ghar";
 
 /** Seeded room name; cannot be renamed or deleted. */
 export const UNASSIGNED_ROOM = "unassigned";
+
+/** Most model turns one control run may take before it fails. */
+export const CONTROL_MAX_TURNS = 12;
+
+/** Most consecutive model turns without a tool call before a control run fails. */
+export const CONTROL_TEXT_TURNS_MAX = 2;
+
+/** Wall-clock budget for one model call from a control run; Dwar retries transient provider failures itself. */
+export const DWAR_TIMEOUT_MS = 120_000;
+
+/** How long a finished control run stays readable at GET /control/:id. */
+export const CONTROL_RETAIN_MS = 60 * 60 * 1000;
+
+/** Most finished control runs kept for GET /control/:id. */
+export const CONTROL_RETAIN_MAX = 200;

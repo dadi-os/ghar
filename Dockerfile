@@ -14,6 +14,7 @@ RUN npm run build
 FROM deps AS dev
 
 COPY tsconfig.json drizzle.config.ts config.toml ./
+COPY prompts ./prompts
 COPY drizzle ./drizzle
 # src/ and test/ arrive via Nas's bind mount, not COPY.
 EXPOSE 8080
@@ -26,6 +27,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 COPY config.toml ./
+COPY prompts ./prompts
 COPY drizzle ./drizzle
 EXPOSE 8080
 CMD ["node", "dist/index.js"]

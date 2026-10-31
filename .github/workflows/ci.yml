@@ -44,6 +44,7 @@ jobs:
           docker run --rm --network host \
             -e DATABASE_URL=postgres://ghar:ghar@localhost:5432/ghar \
             -e MATTER_STORAGE_PATH=/tmp/ghar-matter \
+            -e DWAR_URL=http://dwar:8080 \
             -v "$PWD:/app" -v /app/node_modules \
             ghar-dev npm test
 

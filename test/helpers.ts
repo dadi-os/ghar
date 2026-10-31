@@ -10,6 +10,9 @@ export function testConfig(): Config {
   if (!process.env.MATTER_STORAGE_PATH) {
     process.env.MATTER_STORAGE_PATH = "/tmp/ghar-test-matter";
   }
+  if (!process.env.DWAR_URL) {
+    process.env.DWAR_URL = "http://dwar.test";
+  }
   return loadConfig();
 }
 

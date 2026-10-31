@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@matter/main": "^0.17.9",
+    "axios": "^1.11.0",
     "drizzle-orm": "^0.44.4",
     "fastify": "^5.12.3",
     "postgres": "^3.4.7",
