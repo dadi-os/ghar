@@ -1,16 +1,14 @@
-/** Load devices with room, tags, capabilities for API responses. */
+/** Load devices with tags and capabilities for API responses. */
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import {
   deviceCapabilities,
   devices,
   deviceTags,
-  rooms,
   tags,
   type DeviceCapabilityRow,
   type DeviceRow,
-  type RoomRow,
   type TagRow,
 } from "../db/schema.js";
 import { GharError } from "../errors.js";
@@ -19,7 +17,6 @@ import { toDeviceRecord } from "../serialize.js";
 import type { DeviceRecord } from "../types/domain.js";
 
 export type DeviceFilters = {
-  room?: string | undefined;
   tag?: string | undefined;
   capability?: DeviceCapabilityRow["capability"] | undefined;
   kind?: DeviceRow["kind"] | undefined;
@@ -29,24 +26,16 @@ async function loadDeviceBundle(
   db: Db,
   deviceRows: DeviceRow[],
 ): Promise<{
-  roomsById: Map<string, RoomRow>;
   capsByDevice: Map<string, DeviceCapabilityRow[]>;
   tagsByDevice: Map<string, TagRow[]>;
 }> {
-  const roomsById = new Map<string, RoomRow>();
   const capsByDevice = new Map<string, DeviceCapabilityRow[]>();
   const tagsByDevice = new Map<string, TagRow[]>();
   if (deviceRows.length === 0) {
-    return { roomsById, capsByDevice, tagsByDevice };
+    return { capsByDevice, tagsByDevice };
   }
 
-  const roomIds = [...new Set(deviceRows.map((d) => d.roomId))];
   const deviceIds = deviceRows.map((d) => d.id);
-
-  const roomRows = await db.select().from(rooms).where(inArray(rooms.id, roomIds));
-  for (const row of roomRows) {
-    roomsById.set(row.id, row);
-  }
 
   const capRows = await db
     .select()
@@ -73,20 +62,15 @@ async function loadDeviceBundle(
     tagsByDevice.set(row.deviceId, list);
   }
 
-  return { roomsById, capsByDevice, tagsByDevice };
+  return { capsByDevice, tagsByDevice };
 }
 
 function toRecord(
   device: DeviceRow,
-  roomsById: Map<string, RoomRow>,
   capsByDevice: Map<string, DeviceCapabilityRow[]>,
   tagsByDevice: Map<string, TagRow[]>,
   controller: MatterController,
 ): DeviceRecord {
-  const room = roomsById.get(device.roomId);
-  if (!room) {
-    throw new GharError(500, "internal_error", `device ${device.id} references missing room`);
-  }
   return toDeviceRecord({
     id: device.id,
     nodeId: device.nodeId,
@@ -99,7 +83,6 @@ function toRecord(
     lastSeenAt: device.lastSeenAt,
     vendorName: device.vendorName,
     productName: device.productName,
-    room,
     tags: tagsByDevice.get(device.id) ?? [],
     capabilities: (capsByDevice.get(device.id) ?? []).map((c) => ({
       capability: c.capability,
@@ -109,22 +92,13 @@ function toRecord(
   });
 }
 
-/** List devices with optional room/tag/capability/kind filters. Unknown filters → empty list. */
+/** List devices with optional tag/capability/kind filters. Unknown filters → empty list. */
 export async function listDevices(
   db: Db,
   controller: MatterController,
   filters: DeviceFilters,
 ): Promise<DeviceRecord[]> {
   const conditions = [];
-
-  if (filters.room !== undefined) {
-    const roomRows = await db.select().from(rooms).where(eq(rooms.name, filters.room));
-    const room = roomRows[0];
-    if (!room) {
-      return [];
-    }
-    conditions.push(eq(devices.roomId, room.id));
-  }
 
   if (filters.tag !== undefined) {
     const tagRows = await db.select().from(tags).where(eq(tags.name, filters.tag));
@@ -177,7 +151,7 @@ export async function listDevices(
 
   const bundle = await loadDeviceBundle(db, deviceRows);
   return deviceRows.map((d) =>
-    toRecord(d, bundle.roomsById, bundle.capsByDevice, bundle.tagsByDevice, controller),
+    toRecord(d, bundle.capsByDevice, bundle.tagsByDevice, controller),
   );
 }
 
@@ -193,7 +167,7 @@ export async function getDevice(
     throw new GharError(404, "not_found", "device not found");
   }
   const bundle = await loadDeviceBundle(db, [device]);
-  return toRecord(device, bundle.roomsById, bundle.capsByDevice, bundle.tagsByDevice, controller);
+  return toRecord(device, bundle.capsByDevice, bundle.tagsByDevice, controller);
 }
 
 /**
@@ -214,25 +188,4 @@ export async function deviceCapabilityConfig(
     throw new GharError(422, "capability_unsupported", `device does not support capability ${capability}`);
   }
   return row.config;
-}
-
-/** True when a unique-violation style postgres error mentions the given constraint fragment. */
-export function isUniqueViolation(err: unknown, fragment?: string): boolean {
-  const message = err instanceof Error ? `${err.message} ${err.cause instanceof Error ? err.cause.message : ""}` : "";
-  if (!/unique|duplicate/i.test(message)) {
-    return false;
-  }
-  if (fragment && !message.includes(fragment)) {
-    return false;
-  }
-  return true;
-}
-
-/** Count devices still referencing a room (for delete guard). */
-export async function countDevicesInRoom(db: Db, roomId: string): Promise<number> {
-  const rows = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(devices)
-    .where(eq(devices.roomId, roomId));
-  return rows[0]?.count ?? 0;
 }

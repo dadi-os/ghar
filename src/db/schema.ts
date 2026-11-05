@@ -1,4 +1,4 @@
-/** Drizzle table definitions for rooms, devices, capabilities, tags, and event logs. */
+/** Drizzle table definitions for devices, capabilities, tags, and event logs. */
 
 import {
   bigint,
@@ -25,15 +25,6 @@ export const deviceKindEnum = pgEnum("device_kind", DEVICE_KINDS);
 
 export const eventCauseEnum = pgEnum("event_cause", ["agent", "user", "external"]);
 
-export const rooms = pgTable(
-  "rooms",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    name: text("name").notNull(),
-  },
-  (table) => [uniqueIndex("rooms_name_idx").on(table.name)],
-);
-
 /**
  * One row per controllable Matter endpoint. A single node may expose several
  * endpoints (e.g. a multi-outlet strip); the unique key is (node_id, endpoint).
@@ -50,9 +41,6 @@ export const devices = pgTable(
     kind: deviceKindEnum("kind").notNull(),
     deviceTypes: integer("device_types").array().notNull(),
     bridgeName: text("bridge_name"),
-    roomId: uuid("room_id")
-      .notNull()
-      .references(() => rooms.id, { onDelete: "restrict" }),
     online: boolean("online").notNull().default(false),
     lastSeenAt: timestamptz("last_seen_at"),
     vendorName: text("vendor_name"),
@@ -116,7 +104,6 @@ export const eventLogs = pgTable(
   ],
 );
 
-export type RoomRow = typeof rooms.$inferSelect;
 export type DeviceRow = typeof devices.$inferSelect;
 export type DeviceCapabilityRow = typeof deviceCapabilities.$inferSelect;
 export type TagRow = typeof tags.$inferSelect;

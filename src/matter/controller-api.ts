@@ -20,7 +20,7 @@ export type CommissionWifi = {
 /** One commissioning attempt. `wifi` is held only for the in-flight job. */
 export type CommissionRequest = {
   code: string;
-  roomId?: string;
+  tags?: string[];
   radio: CommissionRadio;
   wifi?: CommissionWifi;
 };

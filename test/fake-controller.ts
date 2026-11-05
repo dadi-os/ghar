@@ -4,7 +4,8 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { PENDING_CAUSE_TTL_MS } from "../src/constants.js";
 import type { Db } from "../src/db/client.js";
-import { deviceCapabilities, devices, rooms } from "../src/db/schema.js";
+import { deviceCapabilities, devices } from "../src/db/schema.js";
+import { addDeviceTags } from "../src/db/tags.js";
 import { GharError } from "../src/errors.js";
 import type { MatterController, CommissionRequest } from "../src/matter/controller-api.js";
 import { PendingCauseTracker } from "../src/matter/cause.js";
@@ -100,7 +101,7 @@ export class FakeController implements MatterController {
       pairingCode: request.code,
       radio: request.radio,
       startedAt: new Date(),
-      ...(request.roomId !== undefined ? { roomId: request.roomId } : {}),
+      ...(request.tags !== undefined ? { tags: request.tags } : {}),
     };
     this.#jobs.set(job.id, job);
     void this.#runCommission(job);
@@ -180,16 +181,6 @@ export class FakeController implements MatterController {
       job.finishedAt = new Date();
       return;
     }
-    const roomRows = job.roomId
-      ? await this.#db.select().from(rooms).where(eq(rooms.id, job.roomId))
-      : await this.#db.select().from(rooms).where(eq(rooms.name, "unassigned"));
-    const room = roomRows[0];
-    if (!room) {
-      job.status = "failed";
-      job.error = job.roomId ? "room missing" : "unassigned room missing";
-      job.finishedAt = new Date();
-      return;
-    }
     const nodeId = BigInt(Date.now());
     const inserted = await this.#db
       .insert(devices)
@@ -199,7 +190,6 @@ export class FakeController implements MatterController {
         name: `commissioned-${job.id.slice(0, 8)}`,
         kind: "light",
         deviceTypes: [0x0101],
-        roomId: room.id,
         online: true,
         vendorName: "FakeVendor",
         productName: "FakeBulb",
@@ -216,6 +206,9 @@ export class FakeController implements MatterController {
       { deviceId: device.id, capability: "on_off", config: {} },
       { deviceId: device.id, capability: "level", config: { min: 0, max: 100 } },
     ]);
+    if (job.tags !== undefined) {
+      await addDeviceTags(this.#db, device.id, job.tags);
+    }
     this.seedState(device.id, "on", false);
     this.seedState(device.id, "brightness", 100);
     job.nodeId = nodeId.toString();

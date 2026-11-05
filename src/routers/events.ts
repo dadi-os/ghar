@@ -2,7 +2,7 @@
 
 import { and, asc, desc, eq, gt, gte, inArray, lte, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { deviceTags, devices, eventLogs, rooms, tags } from "../db/schema.js";
+import { deviceTags, eventLogs, tags } from "../db/schema.js";
 import { GharError } from "../errors.js";
 import { toEventRecord } from "../serialize.js";
 import { asStringList, eventsQuery, parse } from "./schemas.js";
@@ -34,23 +34,6 @@ export async function registerEvents(app: FastifyInstance): Promise<void> {
 
     const deviceIds = asStringList(query.device_id);
     let scopedIds: string[] | undefined = deviceIds;
-
-    if (query.room !== undefined) {
-      const roomRows = await app.db.select().from(rooms).where(eq(rooms.name, query.room));
-      const room = roomRows[0];
-      if (!room) {
-        return { events: [] };
-      }
-      const inRoom = await app.db
-        .select({ id: devices.id })
-        .from(devices)
-        .where(eq(devices.roomId, room.id));
-      const roomIds = inRoom.map((r) => r.id);
-      scopedIds = scopedIds ? scopedIds.filter((id) => roomIds.includes(id)) : roomIds;
-      if (scopedIds.length === 0) {
-        return { events: [] };
-      }
-    }
 
     if (query.tag !== undefined) {
       const tagRows = await app.db.select().from(tags).where(eq(tags.name, query.tag));

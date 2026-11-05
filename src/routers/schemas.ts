@@ -31,7 +31,6 @@ const capability = z.enum(CAPABILITIES);
 
 export const devicesQuery = z
   .object({
-    room: z.string().min(1).optional(),
     tag: z.string().min(1).optional(),
     capability: capability.optional(),
     kind: z.enum(DEVICE_KINDS).optional(),
@@ -41,7 +40,6 @@ export const devicesQuery = z
 export const patchDeviceBody = z
   .object({
     name: z.string().min(1).optional(),
-    room: z.string().uuid().optional(),
     tags: z.array(z.string().min(1)).optional(),
   })
   .strict();
@@ -56,22 +54,35 @@ export const commandBody = z
   })
   .strict();
 
-export const createRoomBody = z
+const tagName = z.string().min(1);
+
+export const createTagBody = z
   .object({
-    name: z.string().min(1),
+    name: tagName,
+    device_ids: z.array(z.string().uuid()).min(1),
   })
   .strict();
 
-export const patchRoomBody = z
+export const patchTagBody = z
   .object({
-    name: z.string().min(1),
+    name: tagName,
   })
+  .strict();
+
+export const tagDevicesBody = z
+  .object({
+    device_ids: z.array(z.string().uuid()).min(1),
+  })
+  .strict();
+
+export const tagDeviceParams = z
+  .object({ id: z.string().uuid(), deviceId: z.string().uuid() })
   .strict();
 
 export const commissionBody = z
   .object({
     code: z.string().min(1),
-    room_id: z.string().uuid().optional(),
+    tags: z.array(tagName).optional(),
     radio: z.enum(["network", "nearby"]).optional(),
     wifi: z
       .object({
@@ -138,7 +149,6 @@ const uuidOrUuidList = z.union([z.string().uuid(), z.array(z.string().uuid())]);
 export const eventsQuery = z
   .object({
     device_id: uuidOrUuidList.optional(),
-    room: z.string().min(1).optional(),
     tag: z.string().min(1).optional(),
     key: z.string().min(1).optional(),
     since: z.string().min(1).optional(),

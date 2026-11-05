@@ -25,7 +25,6 @@ export type DeviceRecord = {
   device_types: number[];
   /** The bridge's product name when this device sits behind a bridge. */
   bridge_name: string | null;
-  room: { id: string; name: string };
   tags: Array<{ id: string; name: string }>;
   capabilities: CapabilityRecord[];
   online: boolean;
@@ -33,11 +32,6 @@ export type DeviceRecord = {
   vendor_name: string | null;
   product_name: string | null;
   state: Record<string, AttributeState>;
-};
-
-export type RoomRecord = {
-  id: string;
-  name: string;
 };
 
 export type TagRecord = {

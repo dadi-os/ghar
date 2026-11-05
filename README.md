@@ -1,6 +1,6 @@
 # Ghar
 
-Home automation for dadi. Owns the Matter fabric, device registry, rooms/tags, live state, and command/event APIs. Agents reach Ghar through Hath's `get_device` (reads) and `control_device` (a plain-language request that Ghar's own control loop turns into commands). Unauthenticated; private mesh only.
+Home automation for dadi. Owns the Matter fabric, device registry, tags, live state, and command/event APIs. Agents reach Ghar through Hath's `get_device` (reads) and `control_device` (a plain-language request that Ghar's own control loop turns into commands). Unauthenticated; private mesh only.
 
 ## Dependencies
 
@@ -70,23 +70,24 @@ The HTTP server listens before the Matter controller finishes starting. Until th
 | Method | Path | Notes |
 | --- | --- | --- |
 | `GET` | `/health` | `{ "status": "ok" }`; `503 matter_unavailable` when the Matter controller failed to start |
-| `GET` | `/devices` | filter by `room`, `tag`, `capability`, `kind` |
+| `GET` | `/devices` | filter by `tag`, `capability`, `kind` |
 | `GET` | `/devices/:id` | device detail |
-| `PATCH` | `/devices/:id` | name, room, tags |
+| `PATCH` | `/devices/:id` | name, tags (by name; replaces the device's set) |
 | `DELETE` | `/devices/:id` | remove registry row / peer; `500 peer_delete_failed` when the peer cannot be removed from the fabric |
 | `POST` | `/devices/:id/command` | `capability`, `command`, `params`; optional `cause` / `cause_ref` (see Devices) |
 | `POST` | `/devices/:id/identify` | blink the device for a few seconds |
 | `POST` | `/control` | `request` (plain words), `caller` (agent id), `wait_ms` (0–60000). Runs a Haiku loop on Dwar's `/chat/complete` with `get_devices` and `command_device`, attributed to `caller`, and answers `{ id, status, result? , error? }`: `done` or `failed` if it settled within `wait_ms`, else `running` and the run goes on. |
 | `GET` | `/control/:id` | a run's `status`, `result` or `error`; kept an hour (200 runs), lost on restart (`404`) |
-| `GET` | `/rooms` | list rooms |
-| `POST` | `/rooms` | create room |
-| `PATCH` | `/rooms/:id` | rename (not `unassigned`) |
-| `DELETE` | `/rooms/:id` | delete room |
-| `GET` | `/tags` | distinct tag names |
+| `GET` | `/tags` | tags with `device_count` |
+| `POST` | `/tags` | `name`, `device_ids` (at least one): create a tag holding those devices; `409` if the name exists |
+| `PATCH` | `/tags/:id` | rename; `409` on a name clash |
+| `DELETE` | `/tags/:id` | remove the tag from every device |
+| `POST` | `/tags/:id/devices` | `device_ids`: add devices to the tag |
+| `DELETE` | `/tags/:id/devices/:deviceId` | take one device out of the tag |
 | `GET` | `/state` | live attribute cache snapshot |
 | `GET` | `/events` | `event_logs` query (`since`, `until`, filters, page) |
 | `GET` | `/changes` | SSE; emits `{ type: "changed", at }` when a device attribute takes a new value and after every successful non-GET request except `/radio/*`. No replay. |
-| `POST` | `/commission` | `202` + `job_id`. Optional `room_id`. `radio` is `network` (default) or `nearby`. Nearby requires `wifi` and an attached device radio, otherwise `422 radio_unavailable`. Wi-Fi credentials are not stored. |
+| `POST` | `/commission` | `202` + `job_id`. Optional `tags` (names) put on the new devices. `radio` is `network` (default) or `nearby`. Nearby requires `wifi` and an attached device radio, otherwise `422 radio_unavailable`. Wi-Fi credentials are not stored. |
 | `GET` | `/commission/:jobId` | poll job (failed jobs still `200` with reason in payload) |
 | `POST` | `/radio/attach` | `201` + `session_id`. One device Bluetooth radio at a time (`409` if taken) |
 | `POST` | `/radio/detach` | release the radio session |

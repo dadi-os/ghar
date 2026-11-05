@@ -10,8 +10,8 @@ test("GET /changes publishes a new attribute value and a successful write, not a
   const app = Fastify();
   app.decorate("controller", { cache } as never);
   await registerChanges(app);
-  app.get("/rooms", async () => ({ rooms: [] }));
-  app.post("/rooms", async () => ({ ok: true }));
+  app.get("/tags", async () => ({ tags: [] }));
+  app.post("/tags", async () => ({ ok: true }));
   app.post("/radio/event", async () => ({ ok: true }));
   app.post("/broken", async (_request, reply) => reply.status(422).send({ error: "no" }));
   await app.listen({ port: 0, host: "127.0.0.1" });
@@ -35,10 +35,10 @@ test("GET /changes publishes a new attribute value and a successful write, not a
   cache.set("d1", "on", true);
   cache.set("d1", "on", true, { touchChangedAt: false });
   cache.set("d1", "on", false);
-  await fetch(`${url}/rooms`);
+  await fetch(`${url}/tags`);
   await fetch(`${url}/broken`, { method: "POST" });
   await fetch(`${url}/radio/event`, { method: "POST" });
-  await fetch(`${url}/rooms`, { method: "POST" });
+  await fetch(`${url}/tags`, { method: "POST" });
   await sleep(50);
 
   const events = received.split("\n\n").filter((part) => part.startsWith("data: "));

@@ -8,7 +8,8 @@ import { DescriptorClient } from "@matter/main/behaviors/descriptor";
 import { FixedLabelClient } from "@matter/main/behaviors/fixed-label";
 import { UserLabelClient } from "@matter/main/behaviors/user-label";
 import type { Db } from "../db/client.js";
-import { deviceCapabilities, devices, rooms } from "../db/schema.js";
+import { deviceCapabilities, devices } from "../db/schema.js";
+import { addDeviceTags } from "../db/tags.js";
 import {
   Behavior,
   deriveCapabilities,
@@ -38,15 +39,6 @@ export type RegisteredDevice = {
   kind: DeviceKind;
   capabilities: CapabilityRecord[];
 };
-
-async function unassignedRoomId(db: Db): Promise<string> {
-  const rows = await db.select().from(rooms).where(eq(rooms.name, "unassigned"));
-  const row = rows[0];
-  if (!row) {
-    throw new Error('seed room "unassigned" is missing; run db:migrate');
-  }
-  return row.id;
-}
 
 /**
  * What an endpoint exposes: its device types, client behaviors, their features and current
@@ -308,8 +300,8 @@ async function readEndpointLabel(
  * device types and capabilities. Endpoints with no Ghar capabilities are skipped, except a
  * bridge's aggregator, which is listed so its bridged devices have a home.
  *
- * `placeRoomId`, when set, is the room for new rows and for endpoints already
- * in the registry. Reconnect sync omits it so an existing room stays put.
+ * `placeTags`, when set, are added to new rows and to endpoints already in the
+ * registry. Reconnect sync omits it so existing tags stay as they are.
  * An existing row keeps a rename. A stock product label is replaced when
  * Matter now has a node or user label.
  */
@@ -317,7 +309,7 @@ export async function syncNodeToRegistry(
   db: Db,
   node: ClientNode,
   log: Logger,
-  placeRoomId?: string,
+  placeTags?: readonly string[],
 ): Promise<RegisteredDevice[]> {
   const peerAddress = node.peerAddress;
   if (!peerAddress) {
@@ -328,7 +320,6 @@ export async function syncNodeToRegistry(
   const vendorName = names.vendorName;
   const productName = names.productName;
   const nodeLabel = names.nodeLabel;
-  const roomId = placeRoomId ?? (await unassignedRoomId(db));
   const registered: RegisteredDevice[] = [];
 
   type PendingEndpoint = {
@@ -410,7 +401,6 @@ export async function syncNodeToRegistry(
           online: true,
           lastSeenAt: new Date(),
           ...(stock ? { name } : {}),
-          ...(placeRoomId !== undefined ? { roomId: placeRoomId } : {}),
         })
         .where(eq(devices.id, deviceId));
       await db.delete(deviceCapabilities).where(eq(deviceCapabilities.deviceId, deviceId));
@@ -424,7 +414,6 @@ export async function syncNodeToRegistry(
           kind,
           deviceTypes,
           bridgeName,
-          roomId,
           online: true,
           lastSeenAt: new Date(),
           vendorName: item.vendorName,
@@ -436,6 +425,10 @@ export async function syncNodeToRegistry(
         throw new Error("device insert returned no row");
       }
       deviceId = row.id;
+    }
+
+    if (placeTags !== undefined) {
+      await addDeviceTags(db, deviceId, placeTags);
     }
 
     if (capabilities.length > 0) {

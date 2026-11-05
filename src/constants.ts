@@ -18,9 +18,6 @@ export const ADMIN_FABRIC_LABEL = "Northwind";
 /** Controller node id within the Matter storage namespace. */
 export const CONTROLLER_NODE_ID = "ghar";
 
-/** Seeded room name; cannot be renamed or deleted. */
-export const UNASSIGNED_ROOM = "unassigned";
-
 /** Most model turns one control run may take before it fails. */
 export const CONTROL_MAX_TURNS = 12;
 

@@ -1,6 +1,6 @@
 import { loadConfig, resetConfigCache, type Config } from "../src/config.js";
 import { createDb, type Db, type Sql } from "../src/db/client.js";
-import { deviceCapabilities, devices, rooms } from "../src/db/schema.js";
+import { deviceCapabilities, devices } from "../src/db/schema.js";
 import { eq } from "drizzle-orm";
 import type { DeviceKind, GharCapability } from "../src/matter/capabilities.js";
 
@@ -27,16 +27,7 @@ export async function openTestDb(): Promise<{ db: Db; sql: Sql; close: () => Pro
 }
 
 export async function truncateAll(sql: Sql): Promise<void> {
-  await sql`TRUNCATE event_logs, device_tags, device_capabilities, devices, tags, rooms CASCADE`;
-}
-
-export async function unassignedRoomId(db: Db): Promise<string> {
-  const rows = await db.select().from(rooms).where(eq(rooms.name, "unassigned"));
-  const row = rows[0];
-  if (!row) {
-    throw new Error("unassigned room missing");
-  }
-  return row.id;
+  await sql`TRUNCATE event_logs, device_tags, device_capabilities, devices, tags CASCADE`;
 }
 
 export async function insertTestDevice(
@@ -45,7 +36,6 @@ export async function insertTestDevice(
     name: string;
     nodeId?: bigint;
     endpoint?: number;
-    roomId: string;
     kind?: DeviceKind;
     capabilities?: Array<{ capability: GharCapability; config?: Record<string, unknown> }>;
     online?: boolean;
@@ -59,7 +49,6 @@ export async function insertTestDevice(
       name: args.name,
       kind: args.kind ?? "light",
       deviceTypes: [],
-      roomId: args.roomId,
       online: args.online ?? true,
       vendorName: "TestVendor",
       productName: "TestProduct",

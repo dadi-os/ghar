@@ -3,14 +3,13 @@ import { after, before, test } from "node:test";
 import { eq } from "drizzle-orm";
 import { buildApp } from "../src/app.js";
 import { migrate } from "../src/db/migrate.js";
-import { eventLogs, rooms } from "../src/db/schema.js";
+import { eventLogs } from "../src/db/schema.js";
 import { FakeController } from "./fake-controller.js";
 import {
   insertTestDevice,
   openTestDb,
   testConfig,
   truncateAll,
-  unassignedRoomId,
 } from "./helpers.js";
 
 const config = testConfig();
@@ -40,15 +39,10 @@ async function reset(): Promise<void> {
   fake.commissionMode = "succeed";
 }
 
-test("GET /devices filters by room, tag, capability, kind; unknown filters are empty", async () => {
+test("GET /devices filters by tag, capability, kind; unknown filters are empty", async () => {
   await reset();
-  const unassigned = await unassignedRoomId(handle.db);
-  const [living] = await handle.db.insert(rooms).values({ name: "living" }).returning();
-  assert.ok(living);
-
   const bulb = await insertTestDevice(handle.db, {
     name: "bulb",
-    roomId: living.id,
     capabilities: [
       { capability: "on_off" },
       { capability: "level", config: { min: 0, max: 100 } },
@@ -57,7 +51,6 @@ test("GET /devices filters by room, tag, capability, kind; unknown filters are e
   });
   const plug = await insertTestDevice(handle.db, {
     name: "plug",
-    roomId: unassigned,
     kind: "plug",
     capabilities: [{ capability: "on_off" }],
   });
@@ -67,14 +60,15 @@ test("GET /devices filters by room, tag, capability, kind; unknown filters are e
   await app.inject({
     method: "PATCH",
     url: `/devices/${bulb}`,
-    payload: { tags: ["ambient", "downstairs"] },
+    payload: { tags: ["living", "ambient"] },
   });
 
-  const byRoom = await app.inject({ method: "GET", url: "/devices?room=living" });
-  assert.equal(byRoom.statusCode, 200);
-  assert.equal(byRoom.json().devices.length, 1);
-  assert.equal(byRoom.json().devices[0].id, bulb);
-  assert.equal(byRoom.json().devices[0].state.on.value, true);
+  const byLiving = await app.inject({ method: "GET", url: "/devices?tag=living" });
+  assert.equal(byLiving.statusCode, 200);
+  assert.equal(byLiving.json().devices.length, 1);
+  assert.equal(byLiving.json().devices[0].id, bulb);
+  assert.equal(byLiving.json().devices[0].state.on.value, true);
+  assert.equal("room" in byLiving.json().devices[0], false);
 
   const byTag = await app.inject({ method: "GET", url: "/devices?tag=ambient" });
   assert.equal(byTag.json().devices.length, 1);
@@ -85,12 +79,9 @@ test("GET /devices filters by room, tag, capability, kind; unknown filters are e
 
   const combo = await app.inject({
     method: "GET",
-    url: "/devices?room=living&tag=ambient&capability=level",
+    url: "/devices?tag=ambient&capability=level",
   });
   assert.equal(combo.json().devices.length, 1);
-
-  const unknownRoom = await app.inject({ method: "GET", url: "/devices?room=nope" });
-  assert.equal(unknownRoom.json().devices.length, 0);
 
   const unknownTag = await app.inject({ method: "GET", url: "/devices?tag=nope" });
   assert.equal(unknownTag.json().devices.length, 0);
@@ -107,10 +98,8 @@ test("GET /devices filters by room, tag, capability, kind; unknown filters are e
 
 test("command rejects unsupported capability and maps timeout to device_unreachable", async () => {
   await reset();
-  const roomId = await unassignedRoomId(handle.db);
   const id = await insertTestDevice(handle.db, {
     name: "switch",
-    roomId,
     capabilities: [{ capability: "on_off" }],
   });
 
@@ -151,10 +140,8 @@ test("command rejects unsupported capability and maps timeout to device_unreacha
 
 test("command attribution writes cause and cause_ref on the event row", async () => {
   await reset();
-  const roomId = await unassignedRoomId(handle.db);
   const id = await insertTestDevice(handle.db, {
     name: "bulb",
-    roomId,
     capabilities: [
       { capability: "on_off" },
       { capability: "level", config: { min: 0, max: 100 } },
@@ -182,43 +169,94 @@ test("command attribution writes cause and cause_ref on the event row", async ()
   assert.equal(rows[0]?.newValue, 40);
 });
 
-test("room delete blocked while devices remain; unassigned is protected", async () => {
+test("tags: create with devices, rename, add and remove devices, delete; empty tags vanish", async () => {
   await reset();
-  const unassigned = await unassignedRoomId(handle.db);
-  const [office] = await handle.db.insert(rooms).values({ name: "office" }).returning();
-  assert.ok(office);
-  await insertTestDevice(handle.db, { name: "lamp", roomId: office.id });
+  const lamp = await insertTestDevice(handle.db, { name: "lamp" });
+  const strip = await insertTestDevice(handle.db, { name: "strip" });
 
-  const blocked = await app.inject({ method: "DELETE", url: `/rooms/${office.id}` });
-  assert.equal(blocked.statusCode, 409);
-  assert.equal(blocked.json().error.type, "conflict");
-
-  const renameUnassigned = await app.inject({
-    method: "PATCH",
-    url: `/rooms/${unassigned}`,
-    payload: { name: "other" },
+  const created = await app.inject({
+    method: "POST",
+    url: "/tags",
+    payload: { name: "ankur's room lights", device_ids: [lamp] },
   });
-  assert.equal(renameUnassigned.statusCode, 409);
+  assert.equal(created.statusCode, 201);
+  assert.equal(created.json().device_count, 1);
+  const tagId = created.json().id as string;
 
-  const deleteUnassigned = await app.inject({ method: "DELETE", url: `/rooms/${unassigned}` });
-  assert.equal(deleteUnassigned.statusCode, 409);
+  const duplicate = await app.inject({
+    method: "POST",
+    url: "/tags",
+    payload: { name: "ankur's room lights", device_ids: [strip] },
+  });
+  assert.equal(duplicate.statusCode, 409);
+
+  const missingDevice = await app.inject({
+    method: "POST",
+    url: "/tags",
+    payload: { name: "ghost", device_ids: ["00000000-0000-4000-8000-000000000001"] },
+  });
+  assert.equal(missingDevice.statusCode, 404);
+
+  const added = await app.inject({
+    method: "POST",
+    url: `/tags/${tagId}/devices`,
+    payload: { device_ids: [lamp, strip] },
+  });
+  assert.equal(added.statusCode, 200);
+  assert.equal(added.json().device_count, 2);
+
+  const renamed = await app.inject({
+    method: "PATCH",
+    url: `/tags/${tagId}`,
+    payload: { name: "ankur's bed lights" },
+  });
+  assert.equal(renamed.statusCode, 200);
+  const byNew = await app.inject({ method: "GET", url: "/devices?tag=ankur's bed lights" });
+  assert.equal(byNew.json().devices.length, 2);
+
+  const other = await app.inject({
+    method: "POST",
+    url: "/tags",
+    payload: { name: "all lights", device_ids: [lamp] },
+  });
+  const clash = await app.inject({
+    method: "PATCH",
+    url: `/tags/${other.json().id}`,
+    payload: { name: "ankur's bed lights" },
+  });
+  assert.equal(clash.statusCode, 409);
+
+  const removed = await app.inject({ method: "DELETE", url: `/tags/${tagId}/devices/${strip}` });
+  assert.equal(removed.statusCode, 204);
+  const detail = await app.inject({ method: "GET", url: `/devices/${lamp}` });
+  assert.deepEqual(
+    (detail.json().tags as Array<{ name: string }>).map((t) => t.name).sort(),
+    ["all lights", "ankur's bed lights"],
+  );
+
+  const deleted = await app.inject({ method: "DELETE", url: `/tags/${tagId}` });
+  assert.equal(deleted.statusCode, 204);
+  const list = await app.inject({ method: "GET", url: "/tags" });
+  assert.deepEqual((list.json().tags as Array<{ name: string }>).map((t) => t.name), ["all lights"]);
+
+  const lastRemoved = await app.inject({ method: "DELETE", url: `/tags/${other.json().id}/devices/${lamp}` });
+  assert.equal(lastRemoved.statusCode, 204);
+  const empty = await app.inject({ method: "GET", url: "/tags" });
+  assert.equal(empty.json().tags.length, 0);
 });
 
 test("GET /events filters and since-as-id resumes without duplicates", async () => {
   await reset();
-  const roomId = await unassignedRoomId(handle.db);
-  const [den] = await handle.db.insert(rooms).values({ name: "den" }).returning();
-  assert.ok(den);
   const a = await insertTestDevice(handle.db, {
     name: "a",
-    roomId: den.id,
     capabilities: [{ capability: "on_off" }],
   });
   const b = await insertTestDevice(handle.db, {
     name: "b",
-    roomId,
     capabilities: [{ capability: "on_off" }],
   });
+
+  await app.inject({ method: "PATCH", url: `/devices/${a}`, payload: { tags: ["den"] } });
 
   await handle.db.insert(eventLogs).values([
     {
@@ -249,8 +287,8 @@ test("GET /events filters and since-as-id resumes without duplicates", async () 
   const byDevice = await app.inject({ method: "GET", url: `/events?device_id=${a}` });
   assert.equal(byDevice.json().events.length, 2);
 
-  const byRoom = await app.inject({ method: "GET", url: "/events?room=den" });
-  assert.equal(byRoom.json().events.length, 2);
+  const byTag = await app.inject({ method: "GET", url: "/events?tag=den" });
+  assert.equal(byTag.json().events.length, 2);
 
   const byCause = await app.inject({ method: "GET", url: "/events?cause=external" });
   assert.equal(byCause.json().events.length, 1);
@@ -281,8 +319,8 @@ test("unknown keys in request bodies are rejected", async () => {
   await reset();
   const res = await app.inject({
     method: "POST",
-    url: "/rooms",
-    payload: { name: "kitchen", extra: true },
+    url: "/tags",
+    payload: { name: "kitchen", device_ids: [], extra: true },
   });
   assert.equal(res.statusCode, 422);
   assert.equal(res.json().error.type, "invalid_request");
@@ -340,21 +378,14 @@ test("commissioning job lifecycle: succeed, fail-late, and conflict", async () =
   assert.equal(conflict.json().error.type, "conflict");
 });
 
-test("commissioning places a new device in the requested room", async () => {
+test("commissioning tags a new device with the requested tags", async () => {
   await reset();
-  const kitchen = await app.inject({
-    method: "POST",
-    url: "/rooms",
-    payload: { name: "kitchen" },
-  });
-  assert.equal(kitchen.statusCode, 201);
-  const roomId = kitchen.json().id as string;
 
   fake.commissionMode = "succeed";
   const started = await app.inject({
     method: "POST",
     url: "/commission",
-    payload: { code: "34970112332", room_id: roomId },
+    payload: { code: "34970112332", tags: ["kitchen", "all lights"] },
   });
   assert.equal(started.statusCode, 202);
   const jobId = started.json().job_id as string;
@@ -367,19 +398,12 @@ test("commissioning places a new device in the requested room", async () => {
   }
   assert.equal(status, "succeeded");
 
-  const list = await app.inject({ method: "GET", url: "/devices" });
-  const placed = (list.json().devices as Array<{ room: { id: string } }>).find(
-    (device) => device.room.id === roomId,
+  const tagged = await app.inject({ method: "GET", url: "/devices?tag=kitchen" });
+  assert.equal(tagged.json().devices.length, 1);
+  assert.deepEqual(
+    (tagged.json().devices[0].tags as Array<{ name: string }>).map((t) => t.name).sort(),
+    ["all lights", "kitchen"],
   );
-  assert.ok(placed);
-
-  const missing = await app.inject({
-    method: "POST",
-    url: "/commission",
-    payload: { code: "34970112332", room_id: "00000000-0000-4000-8000-000000000001" },
-  });
-  assert.equal(missing.statusCode, 404);
-  assert.equal(missing.json().error.type, "not_found");
 });
 
 test("nearby commissioning requires wifi and an attached radio", async () => {
@@ -464,10 +488,8 @@ test("nearby commissioning requires wifi and an attached radio", async () => {
 
 test("GET /state returns cached values with changed_at", async () => {
   await reset();
-  const roomId = await unassignedRoomId(handle.db);
   const id = await insertTestDevice(handle.db, {
     name: "sensor",
-    roomId,
     capabilities: [{ capability: "sensor", config: { measurements: ["occupancy"] } }],
   });
   fake.seedState(id, "occupancy", false);

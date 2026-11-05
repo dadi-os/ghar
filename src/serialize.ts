@@ -8,7 +8,6 @@ import type {
   CommissionJobRecord,
   DeviceRecord,
   EventRecord,
-  RoomRecord,
   TagRecord,
 } from "./types/domain.js";
 
@@ -37,10 +36,6 @@ export function toStateMap(
   return out;
 }
 
-export function toRoomRecord(row: { id: string; name: string }): RoomRecord {
-  return { id: row.id, name: row.name };
-}
-
 export function toTagRecord(row: { id: string; name: string; deviceCount: number }): TagRecord {
   return { id: row.id, name: row.name, device_count: row.deviceCount };
 }
@@ -64,7 +59,6 @@ export function toDeviceRecord(args: {
   lastSeenAt: Date | null;
   vendorName: string | null;
   productName: string | null;
-  room: { id: string; name: string };
   tags: Array<{ id: string; name: string }>;
   capabilities: Array<{ capability: CapabilityRecord["capability"]; config: Record<string, unknown> }>;
   state: ReadonlyMap<string, CachedAttribute> | undefined;
@@ -77,7 +71,6 @@ export function toDeviceRecord(args: {
     kind: args.kind,
     device_types: args.deviceTypes,
     bridge_name: args.bridgeName,
-    room: toRoomRecord(args.room),
     tags: args.tags.map((t) => ({ id: t.id, name: t.name })),
     capabilities: args.capabilities.map(toCapabilityRecord),
     online: args.online,

@@ -1,7 +1,7 @@
 /**
  * `GET /changes` — Server-Sent Events stream that emits `{ type: "changed", at }` when a
- * device attribute takes a new value and after every successful non-GET request (rooms,
- * devices, tags, commands, commissioning; the `/radio` relay carries Bluetooth traffic, not
+ * device attribute takes a new value and after every successful non-GET request (devices,
+ * tags, commands, commissioning; the `/radio` relay carries Bluetooth traffic, not
  * data, so it publishes nothing). Clients refetch what they show. `/events` is the historical
  * event log, so the stream lives here.
  */

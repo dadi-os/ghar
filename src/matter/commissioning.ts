@@ -31,8 +31,8 @@ export type CommissionJob = {
   error?: string;
   nodeId?: string;
   deviceIds?: string[];
-  /** Room chosen at commission time. Omitted leaves new devices unassigned. */
-  roomId?: string;
+  /** Tags chosen at commission time. Omitted leaves new devices untagged. */
+  tags?: string[];
   radio: CommissionRequest["radio"];
   startedAt: Date;
   finishedAt?: Date;
@@ -76,7 +76,7 @@ export class CommissioningService {
       pairingCode: request.code,
       radio: request.radio,
       startedAt: new Date(),
-      ...(request.roomId !== undefined ? { roomId: request.roomId } : {}),
+      ...(request.tags !== undefined ? { tags: request.tags } : {}),
     };
     this.#jobs.set(job.id, job);
     void this.#run(job, request.wifi);
@@ -91,7 +91,7 @@ export class CommissioningService {
       log.info("commissioning discovery started", {
         job_id: job.id,
         radio: job.radio,
-        room_id: job.roomId,
+        tags: job.tags,
         short_discriminator: decoded.shortDiscriminator,
         long_discriminator: decoded.longDiscriminator,
       });
@@ -134,7 +134,7 @@ export class CommissioningService {
         await node.lifecycle.ready;
       }
 
-      const devices = await syncNodeToRegistry(db, node, log, job.roomId);
+      const devices = await syncNodeToRegistry(db, node, log, job.tags);
       const dispose = await bindEndpointSubscriptions({ db, cache, causes, log }, node, devices);
       onNodeReady(node, devices, dispose);
 

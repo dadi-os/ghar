@@ -1,10 +1,11 @@
 /** Device list/detail/patch/delete and command routes. */
 
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { z } from "zod";
 import type { Db } from "../db/client.js";
-import { deviceTags, devices, rooms, tags } from "../db/schema.js";
+import { deviceTags, devices } from "../db/schema.js";
+import { addDeviceTags, deleteOrphanTags } from "../db/tags.js";
 import { GharError } from "../errors.js";
 import { commandSpec, type CommandIssuer } from "../matter/commands/index.js";
 import type { MatterController } from "../matter/controller-api.js";
@@ -12,7 +13,6 @@ import { DeviceTimeoutError } from "../matter/timeout.js";
 import {
   deviceCapabilityConfig,
   getDevice,
-  isUniqueViolation,
   listDevices,
 } from "./devices-query.js";
 import {
@@ -32,10 +32,6 @@ function issuerFromBody(body: {
     return { cause, causeRef: body.cause_ref };
   }
   return { cause };
-}
-
-async function deleteOrphanTags(app: FastifyInstance): Promise<void> {
-  await app.db.execute(sql`DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM device_tags)`);
 }
 
 /**
@@ -79,14 +75,6 @@ export async function registerDevices(app: FastifyInstance): Promise<void> {
     const body = parse(patchDeviceBody, request.body);
     const current = await getDevice(app.db, app.controller, id);
 
-    if (body.room !== undefined) {
-      const roomRows = await app.db.select().from(rooms).where(eq(rooms.id, body.room));
-      if (!roomRows[0]) {
-        throw new GharError(404, "not_found", "room not found");
-      }
-      await app.db.update(devices).set({ roomId: body.room }).where(eq(devices.id, id));
-    }
-
     if (body.name !== undefined) {
       await app.db.update(devices).set({ name: body.name }).where(eq(devices.id, id));
       try {
@@ -106,28 +94,8 @@ export async function registerDevices(app: FastifyInstance): Promise<void> {
 
     if (body.tags !== undefined) {
       await app.db.delete(deviceTags).where(eq(deviceTags.deviceId, id));
-      for (const tagName of body.tags) {
-        let tagRows = await app.db.select().from(tags).where(eq(tags.name, tagName));
-        let tag = tagRows[0];
-        if (!tag) {
-          try {
-            const inserted = await app.db.insert(tags).values({ name: tagName }).returning();
-            tag = inserted[0];
-          } catch (err) {
-            if (isUniqueViolation(err)) {
-              tagRows = await app.db.select().from(tags).where(eq(tags.name, tagName));
-              tag = tagRows[0];
-            } else {
-              throw err;
-            }
-          }
-        }
-        if (!tag) {
-          throw new GharError(500, "internal_error", `failed to create tag ${tagName}`);
-        }
-        await app.db.insert(deviceTags).values({ deviceId: id, tagId: tag.id });
-      }
-      await deleteOrphanTags(app);
+      await addDeviceTags(app.db, id, body.tags);
+      await deleteOrphanTags(app.db);
     }
 
     return getDevice(app.db, app.controller, id);
@@ -137,7 +105,7 @@ export async function registerDevices(app: FastifyInstance): Promise<void> {
     const { id } = parse(idParam, request.params);
     await getDevice(app.db, app.controller, id);
     await app.controller.removeDevice(id);
-    await deleteOrphanTags(app);
+    await deleteOrphanTags(app.db);
     return reply.status(204).send();
   });
 

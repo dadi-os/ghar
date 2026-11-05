@@ -11,7 +11,6 @@ import type { ControlTools } from "./loop.js";
 const getDevicesInput = z
   .object({
     device_ids: z.array(z.string().uuid()).min(1).optional(),
-    room: z.string().min(1).optional(),
     tag: z.string().min(1).optional(),
     capability: z.enum(CAPABILITIES).optional(),
     kind: z.enum(DEVICE_KINDS).optional(),
@@ -37,13 +36,12 @@ export function controlTools(deps: { db: Db; controller: MatterController }, cal
       {
         name: "get_devices",
         description:
-          "Read devices: each one's id, name, room, tags, kind, online flag, capabilities with their config, and current state (each value with when it last changed). Give device_ids for specific devices, or room, tag, capability or kind to filter, or nothing for every device.",
+          "Read devices: each one's id, name, tags, kind, online flag, capabilities with their config, and current state (each value with when it last changed). Give device_ids for specific devices, or tag, capability or kind to filter, or nothing for every device.",
         input_schema: {
           type: "object",
           additionalProperties: false,
           properties: {
             device_ids: { type: "array", items: { type: "string" }, minItems: 1, description: "Only these devices" },
-            room: { type: "string", description: "Only devices in this room" },
             tag: { type: "string", description: "Only devices with this tag" },
             capability: { type: "string", enum: [...CAPABILITIES], description: "Only devices that expose this capability" },
             kind: { type: "string", enum: [...DEVICE_KINDS], description: "Only devices of this kind" },

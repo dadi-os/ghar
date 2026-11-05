@@ -9,7 +9,6 @@ import {
   devices,
   deviceTags,
   eventLogs,
-  rooms,
   tags,
 } from "../src/db/schema.js";
 
@@ -26,19 +25,12 @@ function errorText(err: unknown): string {
 }
 
 async function truncateAll(sql: Sql): Promise<void> {
-  await sql`TRUNCATE event_logs, device_tags, device_capabilities, devices, tags, rooms CASCADE`;
-}
-
-async function unassignedRoomId(db: Db): Promise<string> {
-  const rows = await db.select().from(rooms).where(eq(rooms.name, "unassigned"));
-  const row = rows[0];
-  assert.ok(row, "unassigned room missing");
-  return row.id;
+  await sql`TRUNCATE event_logs, device_tags, device_capabilities, devices, tags CASCADE`;
 }
 
 async function insertDevice(
   db: Db,
-  args: { nodeId: bigint; endpoint: number; name: string; roomId: string },
+  args: { nodeId: bigint; endpoint: number; name: string },
 ): Promise<string> {
   const rows = await db
     .insert(devices)
@@ -48,7 +40,6 @@ async function insertDevice(
       name: args.name,
       kind: "light",
       deviceTypes: [0x0100],
-      roomId: args.roomId,
     })
     .returning({ id: devices.id });
   const row = rows[0];
@@ -64,50 +55,15 @@ after(async () => {
   await sql.end();
 });
 
-test("unassigned room exists after migration", async () => {
-  const rows = await db.select().from(rooms).where(eq(rooms.name, "unassigned"));
-  assert.equal(rows.length, 1);
-});
-
-test("inserting a device without a room fails", async () => {
-  await assert.rejects(
-    () =>
-      sql`
-        INSERT INTO devices (node_id, endpoint, name, room_id)
-        VALUES (1, 1, 'orphan', NULL)
-      `,
-    (err: unknown) => {
-      assert.match(errorText(err), /null value|not-null|violates/i);
-      return true;
-    },
-  );
-});
-
-test("deleting a room that still has devices fails", async () => {
-  await truncateAll(sql);
-  await migrate(config);
-  const roomId = await unassignedRoomId(db);
-  await insertDevice(db, { nodeId: 10n, endpoint: 1, name: "bulb", roomId });
-
-  await assert.rejects(
-    () => db.delete(rooms).where(eq(rooms.id, roomId)),
-    (err: unknown) => {
-      assert.match(errorText(err), /restrict|foreign key|violates/i);
-      return true;
-    },
-  );
-});
-
 test("devices may share node_id across endpoints; (node_id, endpoint) is unique", async () => {
   await truncateAll(sql);
   await migrate(config);
-  const roomId = await unassignedRoomId(db);
 
-  await insertDevice(db, { nodeId: 42n, endpoint: 1, name: "outlet-1", roomId });
-  await insertDevice(db, { nodeId: 42n, endpoint: 2, name: "outlet-2", roomId });
+  await insertDevice(db, { nodeId: 42n, endpoint: 1, name: "outlet-1" });
+  await insertDevice(db, { nodeId: 42n, endpoint: 2, name: "outlet-2" });
 
   await assert.rejects(
-    () => insertDevice(db, { nodeId: 42n, endpoint: 1, name: "dup", roomId }),
+    () => insertDevice(db, { nodeId: 42n, endpoint: 1, name: "dup" }),
     (err: unknown) => {
       assert.match(errorText(err), /unique|duplicate/i);
       return true;
@@ -118,12 +74,10 @@ test("devices may share node_id across endpoints; (node_id, endpoint) is unique"
 test("deleting a device cascades to capabilities, tags, and event logs", async () => {
   await truncateAll(sql);
   await migrate(config);
-  const roomId = await unassignedRoomId(db);
   const deviceId = await insertDevice(db, {
     nodeId: 7n,
     endpoint: 1,
     name: "switch",
-    roomId,
   });
 
   await db.insert(deviceCapabilities).values({
@@ -155,12 +109,10 @@ test("deleting a device cascades to capabilities, tags, and event logs", async (
 test("a device cannot hold the same capability twice", async () => {
   await truncateAll(sql);
   await migrate(config);
-  const roomId = await unassignedRoomId(db);
   const deviceId = await insertDevice(db, {
     nodeId: 3n,
     endpoint: 1,
     name: "lamp",
-    roomId,
   });
 
   await db.insert(deviceCapabilities).values({
@@ -186,12 +138,10 @@ test("a device cannot hold the same capability twice", async () => {
 test("tag names are unique and a device cannot carry the same tag twice", async () => {
   await truncateAll(sql);
   await migrate(config);
-  const roomId = await unassignedRoomId(db);
   const deviceId = await insertDevice(db, {
     nodeId: 5n,
     endpoint: 1,
     name: "plug",
-    roomId,
   });
 
   const [tag] = await db.insert(tags).values({ name: "ambient" }).returning();
@@ -218,12 +168,10 @@ test("tag names are unique and a device cannot carry the same tag twice", async 
 test("event_logs ids increase monotonically across inserts", async () => {
   await truncateAll(sql);
   await migrate(config);
-  const roomId = await unassignedRoomId(db);
   const deviceId = await insertDevice(db, {
     nodeId: 9n,
     endpoint: 1,
     name: "sensor",
-    roomId,
   });
 
   const first = await db
@@ -255,12 +203,10 @@ test("event_logs ids increase monotonically across inserts", async () => {
 test("invalid capability or cause values are rejected by the enum", async () => {
   await truncateAll(sql);
   await migrate(config);
-  const roomId = await unassignedRoomId(db);
   const deviceId = await insertDevice(db, {
     nodeId: 11n,
     endpoint: 1,
     name: "lock",
-    roomId,
   });
 
   await assert.rejects(
