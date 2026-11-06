@@ -1,9 +1,9 @@
 /** Tag routes: a tag is a named set of devices, and a device can carry any number of tags. */
 
-import { eq, inArray, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { deviceTags, devices, tags } from "../db/schema.js";
-import { addDeviceTags, deleteOrphanTags, isUniqueViolation } from "../db/tags.js";
+import { deviceTags, tags } from "../db/schema.js";
+import { addDeviceTags, deleteOrphanTags, isUniqueViolation, requireDevices } from "../db/tags.js";
 import { GharError } from "../errors.js";
 import { toTagRecord } from "../serialize.js";
 import type { TagRecord } from "../types/domain.js";
@@ -15,13 +15,6 @@ import {
   tagDeviceParams,
   tagDevicesBody,
 } from "./schemas.js";
-
-async function requireDevices(app: FastifyInstance, ids: string[]): Promise<void> {
-  const found = await app.db.select({ id: devices.id }).from(devices).where(inArray(devices.id, ids));
-  if (found.length !== new Set(ids).size) {
-    throw new GharError(404, "not_found", "device not found");
-  }
-}
 
 function selectTags(app: FastifyInstance) {
   return app.db
@@ -51,7 +44,7 @@ export async function registerTags(app: FastifyInstance): Promise<void> {
 
   app.post("/tags", async (request, reply) => {
     const body = parse(createTagBody, request.body);
-    await requireDevices(app, body.device_ids);
+    await requireDevices(app.db, body.device_ids);
     const existing = await app.db.select().from(tags).where(eq(tags.name, body.name));
     if (existing[0]) {
       throw new GharError(409, "conflict", `tag name already exists: ${body.name}`);
@@ -92,7 +85,7 @@ export async function registerTags(app: FastifyInstance): Promise<void> {
     const { id } = parse(idParam, request.params);
     const body = parse(tagDevicesBody, request.body);
     const tag = await tagRecord(app, id);
-    await requireDevices(app, body.device_ids);
+    await requireDevices(app.db, body.device_ids);
     for (const deviceId of body.device_ids) {
       await app.db.insert(deviceTags).values({ deviceId, tagId: id }).onConflictDoNothing();
     }

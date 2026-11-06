@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { buildApp } from "../src/app.js";
 import { migrate } from "../src/db/migrate.js";
 import { eventLogs } from "../src/db/schema.js";
+import { controlTools } from "../src/control/tools.js";
 import { FakeController } from "./fake-controller.js";
 import {
   insertTestDevice,
@@ -243,6 +244,36 @@ test("tags: create with devices, rename, add and remove devices, delete; empty t
   assert.equal(lastRemoved.statusCode, 204);
   const empty = await app.inject({ method: "GET", url: "/tags" });
   assert.equal(empty.json().tags.length, 0);
+});
+
+test("control tools tag, untag and rename; a missing tag or device is refused", async () => {
+  await reset();
+  const lamp = await insertTestDevice(handle.db, { name: "lamp" });
+  const strip = await insertTestDevice(handle.db, { name: "strip" });
+  const tools = controlTools({ db: handle.db, controller: fake }, "agent-1");
+
+  await tools.call("tag_devices", { tag: "ankur's bed lights", device_ids: [lamp, strip] });
+  await tools.call("tag_devices", { tag: "ankur's bed lights", device_ids: [lamp] });
+  const tagged = await app.inject({ method: "GET", url: "/devices?tag=ankur's bed lights" });
+  assert.equal(tagged.json().devices.length, 2);
+
+  await tools.call("rename_tag", { tag: "ankur's bed lights", new_name: "bed lights" });
+  const renamed = await app.inject({ method: "GET", url: "/devices?tag=bed lights" });
+  assert.equal(renamed.json().devices.length, 2);
+
+  await tools.call("untag_devices", { tag: "bed lights", device_ids: [strip] });
+  const left = await app.inject({ method: "GET", url: "/devices?tag=bed lights" });
+  assert.deepEqual((left.json().devices as Array<{ id: string }>).map((d) => d.id), [lamp]);
+
+  await tools.call("untag_devices", { tag: "bed lights", device_ids: [lamp] });
+  const gone = await app.inject({ method: "GET", url: "/tags" });
+  assert.equal(gone.json().tags.length, 0);
+
+  await assert.rejects(() => tools.call("untag_devices", { tag: "nope", device_ids: [lamp] }), /no tag named nope/);
+  await assert.rejects(
+    () => tools.call("tag_devices", { tag: "ghost", device_ids: ["00000000-0000-4000-8000-000000000001"] }),
+    /device not found/,
+  );
 });
 
 test("GET /events filters and since-as-id resumes without duplicates", async () => {
